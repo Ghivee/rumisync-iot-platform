@@ -81,7 +81,7 @@ export function Layout() {
   ];
 
   return (
-    <div className="flex flex-col md:flex-row bg-rs-bg selection:bg-rs-primary selection:text-white" style={{ height: '100dvh', minHeight: '-webkit-fill-available' }}>
+    <div className="flex flex-col md:flex-row bg-rs-bg selection:bg-rs-primary selection:text-white w-full overflow-x-hidden" style={{ height: '100dvh', minHeight: '-webkit-fill-available' }}>
       <Toaster position="top-center" richColors />
       
       {/* Sidebar for Tablet (md) and Desktop (lg) */}
@@ -124,7 +124,7 @@ export function Layout() {
       </aside>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-h-0 w-full">
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
         {/* Top Header - shrink-0 so it never gets squished */}
         <header className="bg-rs-card border-b border-rs-border px-4 sm:px-8 py-4 flex items-center justify-between z-30 shadow-sm shrink-0">
           <Link to="/" className="flex items-center gap-3 md:hidden group">

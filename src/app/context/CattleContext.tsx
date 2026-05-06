@@ -141,10 +141,7 @@ const CattleContext = createContext<CattleContextType | undefined>(undefined);
 const LS_NOTIF_KEY = 'rumisync_notif_v1';
 
 function loadNotifFromStorage(): AppNotification[] {
-  try {
-    const raw = localStorage.getItem(LS_NOTIF_KEY);
-    if (raw) return JSON.parse(raw) as AppNotification[];
-  } catch { /* ignore */ }
+  // Tidak load dari localStorage — notifikasi hanya dari Supabase realtime
   return [];
 }
 
@@ -158,10 +155,10 @@ export function CattleProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
 
-  // Persist notifications to localStorage
+  // Persist cattle data ke localStorage
   useEffect(() => {
-    try { localStorage.setItem(LS_NOTIF_KEY, JSON.stringify(notifications)); } catch { /* ignore */ }
-  }, [notifications]);
+    // Tidak persist cattle — selalu fresh dari Supabase
+  }, []);
 
   // ─── 1. Load initial data from Supabase ─────────────────
   useEffect(() => {

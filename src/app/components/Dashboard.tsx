@@ -2,7 +2,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { useCattle } from "../context/CattleContext";
-import { Home, Filter, ChevronLeft, ChevronRight, Edit2, Trash2, X, Save, AlertTriangle } from "lucide-react";
+import { Home, ChevronLeft, ChevronRight, Edit2, Trash2, X, Save, AlertTriangle, Loader2, Wifi } from "lucide-react";
 import { toast } from "sonner";
 import sapiAmanImg from '../../assets/sapi_aman.png';
 import sapiPantauanImg from '../../assets/sapi_pantauan.png';
@@ -10,7 +10,7 @@ import sapiSakitImg from '../../assets/sapi_sakit.png';
 import type { CattleData } from "../context/CattleContext";
 
 export function Dashboard() {
-  const { cattleData, setSelectedCattleId, updateCattle, deleteCattle } = useCattle();
+  const { cattleData, setSelectedCattleId, updateCattle, deleteCattle, isLoading, connectionStatus } = useCattle();
   const navigate = useNavigate();
   const [filter, setFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
@@ -134,10 +134,34 @@ export function Dashboard() {
         </div>
         <div>
           <h1 className="text-2xl sm:text-4xl font-bold text-[#2d3a33] mb-0.5 sm:mb-1">Beranda RUMI-SYNC</h1>
-          <p className="text-xs sm:text-base text-[#6b7280]">Status Kesehatan dan Pemantauan Real-Time</p>
+          <div className="flex items-center gap-2">
+            <p className="text-xs sm:text-base text-[#6b7280]">Status Kesehatan dan Pemantauan Real-Time</p>
+            {connectionStatus === 'connected' && (
+              <span className="hidden sm:flex items-center gap-1 text-xs font-bold text-[#4c7766] bg-[#e8f5ee] px-2 py-0.5 rounded-full border border-[#6b8e7b]/20">
+                <Wifi className="w-3 h-3" /> Live
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
+      {/* Loading State */}
+      {isLoading ? (
+        <div className="flex flex-col items-center justify-center py-24 gap-4">
+          <Loader2 className="w-12 h-12 text-[#4c7766] animate-spin" />
+          <p className="text-[#6b7280] font-medium">Memuat data sapi dari Supabase...</p>
+        </div>
+      ) : cattleData.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-24 gap-4 bg-white rounded-3xl border border-[#e2e8e4]">
+          <div className="text-6xl">🐄</div>
+          <h3 className="text-xl font-bold text-[#2d3a33]">Belum Ada Data Sapi</h3>
+          <p className="text-[#6b7280] text-sm text-center max-w-sm">
+            Tabel <code className="bg-[#f4f5f2] px-1.5 py-0.5 rounded font-mono text-xs">cattle_inventory</code> di Supabase masih kosong.
+            Data akan muncul otomatis ketika hardware mengirim data melalui MQTT.
+          </p>
+        </div>
+      ) : (
+        <>
       <div className="grid grid-cols-3 gap-2 sm:gap-8">
         <StatusCard 
           title="Aman" 
@@ -290,7 +314,7 @@ export function Dashboard() {
         )}
       </div>
 
-      {/* Delete Modal */}
+        {/* Delete Modal */}
       <AnimatePresence>
         {cattleToDelete && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
@@ -366,7 +390,8 @@ export function Dashboard() {
           </div>
         )}
       </AnimatePresence>
-
+      </>
+    )}
     </div>
   );
 }

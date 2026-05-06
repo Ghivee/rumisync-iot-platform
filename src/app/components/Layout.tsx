@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Outlet, Link, useLocation, useNavigate } from "react-router";
-import { Home, Activity, Leaf, Settings, Bell, X, Menu, CheckCircle2 } from "lucide-react";
+import { Home, Activity, Leaf, Settings, Bell, X, CheckCircle2, Wifi, WifiOff, Loader2 } from "lucide-react";
 import { Toaster } from "./ui/sonner";
 import logoImg from '../../assets/logo.png';
 import { useCattle } from "../context/CattleContext";
@@ -41,14 +41,14 @@ export function Layout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
 
-  const { notifications, markNotificationAsRead, setSelectedCattleId } = useCattle();
+  const { notifications, markNotificationAsRead, setSelectedCattleId, selectedCattle, connectionStatus } = useCattle();
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setBatteryLevel((prev) => (prev <= 1 ? 100 : prev - 1));
-    }, 120000); 
-    return () => clearInterval(timer);
-  }, []);
+    // Update battery level from real cattle sensor data if available
+    if (selectedCattle && selectedCattle.battery != null) {
+      setBatteryLevel(selectedCattle.battery);
+    }
+  }, [selectedCattle]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -136,8 +136,22 @@ export function Layout() {
           
           {/* Desktop/Tablet Global Context Header Items */}
           <div className="hidden md:flex flex-1 items-center justify-between">
-            <div className="text-rs-muted font-medium text-sm lg:text-base">
-              Beranda {location.pathname !== '/' && `> ${navigationItems.find(n => isActive(n.path))?.label}`}
+            <div className="flex items-center gap-3">
+              <div className="text-rs-muted font-medium text-sm lg:text-base">
+                Beranda {location.pathname !== '/' && `> ${navigationItems.find(n => isActive(n.path))?.label}`}
+              </div>
+              {/* Realtime Connection Indicator */}
+              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${
+                connectionStatus === 'connected' ? 'bg-[#e8f5ee] text-[#4c7766] border-[#6b8e7b]/20' :
+                connectionStatus === 'error' ? 'bg-[#fee2e2] text-[#c25944] border-[#fca5a5]/20' :
+                'bg-[#fef3c7] text-[#d97706] border-[#d97706]/20'
+              }`}>
+                {connectionStatus === 'connected' ? <Wifi className="w-3 h-3" /> :
+                 connectionStatus === 'error' ? <WifiOff className="w-3 h-3" /> :
+                 <Loader2 className="w-3 h-3 animate-spin" />}
+                {connectionStatus === 'connected' ? 'Realtime Aktif' :
+                 connectionStatus === 'error' ? 'Koneksi Gagal' : 'Menghubungkan...'}
+              </div>
             </div>
 
             <div className="flex items-center gap-6">

@@ -5,17 +5,16 @@ import { toast } from "sonner";
 import { useCattle } from "../context/CattleContext";
 import type { CattleData } from "../context/CattleContext";
 
-// cattlePositions is now generated dynamically
-const iTagData = [
-  { id: "ID-002", mac: "A4:C1:38:7F:2E:D1", rssi: -45, status: "Sangat Kuat" },
-  { id: "ID-005", mac: "B2:D8:4A:9C:1F:E3", rssi: -62, status: "Kuat" },
-  { id: "ID-007", mac: "C5:E9:2B:8D:3A:F2", rssi: -58, status: "Kuat" },
-  { id: "ID-009", mac: "D1:F4:5C:7E:4B:A5", rssi: -71, status: "Sedang" },
-  { id: "ID-012", mac: "E3:A7:6D:9F:5C:B8", rssi: -53, status: "Kuat" },
-  { id: "ID-014", mac: "F8:B2:7E:A1:6D:C9", rssi: -68, status: "Sedang" },
-  { id: "ID-018", mac: "A9:C3:8F:B4:7E:D2", rssi: -49, status: "Kuat" },
-  { id: "ID-003", mac: "B4:D1:9A:C5:8F:E6", rssi: -55, status: "Kuat" },
-];
+// Generate RSSI & MAC secara deterministik dari ID sapi (untuk simulasi iTag BLE)
+function deriveITagFromId(id: string) {
+  const num = parseInt(id.replace(/\D/g, '')) || 1;
+  const seed = num % 256;
+  const rssi = -45 - (seed % 35); // range -45 ~ -79
+  const status = rssi > -55 ? 'Sangat Kuat' : rssi > -65 ? 'Kuat' : 'Sedang';
+  const hex = (n: number) => n.toString(16).padStart(2, '0').toUpperCase();
+  const mac = `${hex(seed)}:${hex((seed * 3) % 256)}:${hex((seed * 7) % 256)}:${hex((seed * 11) % 256)}:${hex((seed * 13) % 256)}:${hex((seed * 17) % 256)}`;
+  return { id, mac, rssi, status };
+}
 
 const initialMaintenanceLogs = [
   { id: 1, date: "Hari ini 10:15", event: "Sensor ID-050 terputus dari jaringan", type: "error", resolvable: true },
@@ -35,6 +34,9 @@ export function SystemControl() {
   const [currentBatchIndex, setCurrentBatchIndex] = useState(0);
 
   const { addCattle, cattleData } = useCattle();
+
+  // iTagData dinamis dari cattleData Supabase
+  const iTagData = useMemo(() => cattleData.map(c => deriveITagFromId(c.id)), [cattleData]);
 
   // Batches calculation
   const batches = useMemo(() => {
@@ -185,13 +187,15 @@ export function SystemControl() {
       id: generatedId,
       name: newCattleName,
       breed: newCattleBreed,
-      temp: "38.5", // default normal
+      temp: "38.5",
       chewing: "60x/menit",
+      battery: 100,
       status: "normal",
       health: 100,
       age: { year: yearParsed, month: monthParsed, day: dayParsed },
       gender: newCattleGender,
-      methaneLevel: 100,
+      methaneLevel: 110,
+      lastUpdated: null,
       rumination: {
         status: "Kunyahan Normal & Aktif",
         frequency: "60x/mnt",

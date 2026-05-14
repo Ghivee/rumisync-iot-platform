@@ -28,14 +28,51 @@ mqttClient.on('connect', () => {
     if (!err) console.log('📡 Subscribe: rumisync/cattle/+');
     else console.error('❌ Subscribe gagal:', err.message);
   });
+  // Subscribe juga ke topik status ESP (baterai global)
+  mqttClient.subscribe('rumisync/esp/status', err => {
+    if (!err) console.log('📡 Subscribe: rumisync/esp/status');
+  });
 });
 
 mqttClient.on('reconnect', () => console.log('🔄 Reconnecting MQTT...'));
 mqttClient.on('error', err => console.error('❌ MQTT Error:', err.message));
 
+// ─── Fungsi hitung Skor Kesehatan Global ───────────────────
+// Berdasarkan suhu dan kunyahan, menghasilkan skor 0–100
+function computeHealthScore(temp, chewing) {
+  let score = 100;
+
+  // Penalti suhu: normal 38.0-39.0, warning 39.0-39.5, danger >39.5
+  if (temp > 39.5) score -= 40;
+  else if (temp > 39.0) score -= Math.round((temp - 39.0) * 40); // 0-20 penalti gradual
+  else if (temp < 37.5) score -= 15; // hipotermia ringan
+
+  // Penalti kunyahan: normal >60, warning 30-60, danger <30
+  if (chewing < 30) score -= 40;
+  else if (chewing < 60) score -= Math.round((60 - chewing) / 30 * 20); // 0-20 penalti gradual
+
+  return Math.max(0, Math.min(100, score));
+}
+
 mqttClient.on('message', async (topic, message) => {
   try {
     const data = JSON.parse(message.toString());
+
+    // ─── Handle ESP status (baterai global) ────────────────
+    if (topic === 'rumisync/esp/status') {
+      if (data.battery != null) {
+        console.log(`🔋 Baterai ESP: ${data.battery}%`);
+        // Simpan ke tabel esp_status
+        await supabase.from('esp_status').upsert({
+          id: 'main',
+          battery: data.battery,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'id' });
+      }
+      return;
+    }
+
+    // ─── Handle data sapi ──────────────────────────────────
     const cattleId = topic.split('/').pop();
 
     if (!cattleId || data.temp == null || data.chewing == null) {
@@ -45,22 +82,26 @@ mqttClient.on('message', async (topic, message) => {
 
     console.log(`\n📥 Data baru dari ${cattleId}:`, data);
 
-    const isAnomaly = data.temp > 39.5 || data.chewing < 30;
+    // Hitung skor kesehatan dari suhu & kunyahan
+    const healthScore = computeHealthScore(data.temp, data.chewing);
+    const isAnomaly = healthScore < 60;
+    const isWarning = healthScore < 80;
+
     const alertMessage = data.temp > 39.5
       ? `Suhu tinggi terdeteksi (${data.temp}°C). Indikasi demam/infeksi!`
       : data.chewing < 30
         ? `Tingkat kunyahan rendah (${data.chewing}x/mnt). Indikasi gangguan pencernaan.`
         : '';
 
-    // ─── STEP 1: UPSERT cattle_inventory DULU ──────────────
-    // Ini memastikan FK constraint terpenuhi sebelum insert sensor_data/notifications
+    // ─── STEP 1: UPSERT cattle_inventory ────────────────────
     const upsertPayload = {
       id: cattleId,
       name: `Sapi ${cattleId}`,
       current_temp: data.temp,
       current_chewing: data.chewing,
-      battery: data.battery ?? null,
-      health_status: isAnomaly ? 'Sakit' : 'Aman',
+      current_rssi: data.rssi ?? null,
+      health_score: healthScore,
+      health_status: isAnomaly ? 'Sakit' : isWarning ? 'Pantauan' : 'Aman',
       last_updated: new Date().toISOString(),
     };
 
@@ -70,23 +111,23 @@ mqttClient.on('message', async (topic, message) => {
 
     if (upsertError) {
       console.error('❌ Gagal upsert cattle_inventory:', upsertError.message);
-      return; // Stop — jangan insert anak tabel jika parent gagal
+      return;
     }
-    console.log(`✅ cattle_inventory [${cattleId}] upsert → realtime dikirim ke Vercel.`);
+    console.log(`✅ cattle_inventory [${cattleId}] upsert OK (health: ${healthScore}/100)`);
 
-    // ─── STEP 2: Insert sensor_data (histori) ──────────────
+    // ─── STEP 2: Insert sensor_data (histori) ───────────────
     const { error: sensorError } = await supabase.from('sensor_data').insert([{
       cattle_id: cattleId,
       temperature: data.temp,
       chewing_rate: data.chewing,
-      battery_level: data.battery ?? null,
-      status: isAnomaly ? 'danger' : 'normal',
+      rssi: data.rssi ?? null,
+      status: isAnomaly ? 'danger' : isWarning ? 'warning' : 'normal',
     }]);
     if (sensorError) console.error('❌ Gagal simpan sensor_data:', sensorError.message);
     else console.log('✅ sensor_data disimpan.');
 
-    // ─── STEP 3: Insert notification (jika anomali) ────────
-    if (isAnomaly) {
+    // ─── STEP 3: Insert notification (jika anomali) ─────────
+    if (isAnomaly && alertMessage) {
       console.log(`🚨 ANOMALI: ${alertMessage}`);
       const { error: notifError } = await supabase.from('notifications').insert([{
         cattle_id: cattleId,

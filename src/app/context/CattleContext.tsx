@@ -11,25 +11,12 @@ export interface CattleData {
   breed: string;
   temp: string;
   chewing: string;
-  battery: number;
+  rssi: number | null;
   status: "normal" | "warning";
-  health: number;
+  health: number; // skor kesehatan global 0-100
   age: { year: number; month: number; day: number };
   gender: "Jantan" | "Betina";
-  methaneLevel: number;
   lastUpdated: string | null;
-  rumination: {
-    status: string;
-    frequency: string;
-    duration: string;
-    intensity: string;
-    metanePotential: string;
-    feedType: string;
-    recommendation: string;
-    targetMethane: string;
-    feedBoost: string;
-    ruminalHealth: string;
-  };
 }
 
 export interface AppNotification {
@@ -41,42 +28,26 @@ export interface AppNotification {
   isRead: boolean;
 }
 
+export interface RelConfig {
+  id: number;
+  rel_number: number;
+  cattle_count: number;
+  label: string;
+}
+
 // ============================================================
 // HELPER: Map baris Supabase cattle_inventory → CattleData
 // ============================================================
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapInventoryToCattle(row: any): CattleData {
-  const temp = parseFloat(row.current_temp ?? 38.5);
-  const chewing = row.current_chewing ?? 60;
-  const battery = row.battery ?? 100;
-  const health = row.health_score ?? 95;
-  const isAnomaly = temp >= 39.5 || chewing < 30;
-  const isWarning = temp >= 39.1 || chewing < 50;
+  const temp = parseFloat(row.current_temp ?? 0);
+  const chewing = row.current_chewing ?? 0;
+  const healthScore = row.health_score ?? 100;
+  const isAnomaly = healthScore < 60;
+  const isWarning = healthScore < 80;
 
-  // Derive rumination status from sensor values
-  let ruminationStatus = 'Normal Terkendali';
-  let feedType = 'Rumput Segar';
-  let recommendation = 'Pakan cukup optimal. Pertahankan.';
-  let intensity = 'Sedang';
-  let metanePotential = 'Level Normal';
-  let ruminalHealth = 'Sangat Baik';
-
-  if (isAnomaly) {
-    ruminationStatus = 'Penurunan Drastis';
-    feedType = 'Jerami Kering';
-    recommendation = 'Tingkatkan pakan bernutrisi tinggi segera.';
-    intensity = 'Tinggi';
-    metanePotential = 'Tinggi';
-    ruminalHealth = 'Perlu Pemeriksaan';
-  } else if (isWarning) {
-    ruminationStatus = 'Kunyahan Lambat';
-    intensity = 'Tinggi';
-    metanePotential = 'Sedang';
-    ruminalHealth = 'Perlu Perhatian';
-  }
-
-  // Parse age from date_of_birth or age fields
-  let age = { year: 2, month: 0, day: 0 };
+  // Parse age from fields
+  let age = { year: 0, month: 0, day: 0 };
   if (row.date_of_birth) {
     const dob = new Date(row.date_of_birth);
     const now = new Date();
@@ -86,8 +57,8 @@ function mapInventoryToCattle(row: any): CattleData {
     if (days < 0) { months--; days += 30; }
     if (months < 0) { years--; months += 12; }
     age = { year: Math.max(0, years), month: Math.max(0, months), day: Math.max(0, days) };
-  } else if (row.age_years != null) {
-    age = { year: row.age_years ?? 0, month: row.age_months ?? 0, day: 0 };
+  } else if (row.age_year != null) {
+    age = { year: row.age_year ?? 0, month: row.age_month ?? 0, day: row.age_day ?? 0 };
   }
 
   return {
@@ -96,25 +67,12 @@ function mapInventoryToCattle(row: any): CattleData {
     breed: row.breed ?? 'Brahman Cross',
     temp: temp.toFixed(1),
     chewing: `${chewing}x/menit`,
-    battery,
+    rssi: row.current_rssi ?? null,
     status: isAnomaly || isWarning ? 'warning' : 'normal',
-    health: Math.min(100, Math.max(0, health)),
+    health: Math.min(100, Math.max(0, healthScore)),
     age,
     gender: (row.gender === 'Jantan' || row.gender === 'Betina') ? row.gender : 'Betina',
-    methaneLevel: row.methane_level ?? 110,
     lastUpdated: row.last_updated ?? null,
-    rumination: {
-      status: ruminationStatus,
-      frequency: `${chewing}x/mnt`,
-      duration: `${(3 + Math.random() * 2).toFixed(1)} detik`,
-      intensity,
-      metanePotential,
-      feedType,
-      recommendation,
-      targetMethane: '110g/hari',
-      feedBoost: '+5%',
-      ruminalHealth,
-    },
   };
 }
 
@@ -134,16 +92,12 @@ interface CattleContextType {
   addNotification: (notif: Omit<AppNotification, 'id' | 'isRead'>) => void;
   isLoading: boolean;
   connectionStatus: 'connecting' | 'connected' | 'error';
+  espBattery: number;
+  relConfigs: RelConfig[];
+  updateRelConfig: (relNumber: number, cattleCount: number) => void;
 }
 
 const CattleContext = createContext<CattleContextType | undefined>(undefined);
-
-const LS_NOTIF_KEY = 'rumisync_notif_v1';
-
-function loadNotifFromStorage(): AppNotification[] {
-  // Tidak load dari localStorage — notifikasi hanya dari Supabase realtime
-  return [];
-}
 
 // ============================================================
 // PROVIDER
@@ -151,21 +105,19 @@ function loadNotifFromStorage(): AppNotification[] {
 export function CattleProvider({ children }: { children: ReactNode }) {
   const [cattleData, setCattleData] = useState<CattleData[]>([]);
   const [selectedCattleId, setSelectedCattleId] = useState<string>('');
-  const [notifications, setNotifications] = useState<AppNotification[]>(() => loadNotifFromStorage());
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
+  const [espBattery, setEspBattery] = useState(100);
+  const [relConfigs, setRelConfigs] = useState<RelConfig[]>([]);
 
-  // Persist cattle data ke localStorage
-  useEffect(() => {
-    // Tidak persist cattle — selalu fresh dari Supabase
-  }, []);
-
-  // ─── 1. Load initial data from Supabase ─────────────────
+  // ─── 1. Load initial data ─────────────────────────────────
   useEffect(() => {
     async function fetchInitialData() {
       setIsLoading(true);
       setConnectionStatus('connecting');
 
+      // Load cattle
       const { data, error } = await supabase
         .from('cattle_inventory')
         .select('*')
@@ -180,13 +132,18 @@ export function CattleProvider({ children }: { children: ReactNode }) {
         setCattleData(mapped);
         setSelectedCattleId(mapped[0].id);
         setConnectionStatus('connected');
-        console.log(`✅ Berhasil load ${mapped.length} sapi dari Supabase.`);
       } else {
-        // Table exists but empty
         setCattleData([]);
         setConnectionStatus('connected');
-        console.warn('⚠️ Tabel cattle_inventory kosong.');
       }
+
+      // Load ESP battery
+      const { data: espData } = await supabase.from('esp_status').select('battery').eq('id', 'main').single();
+      if (espData) setEspBattery(espData.battery ?? 100);
+
+      // Load rel configs
+      const { data: relData } = await supabase.from('rel_config').select('*').order('rel_number', { ascending: true });
+      if (relData) setRelConfigs(relData);
 
       setIsLoading(false);
     }
@@ -194,145 +151,132 @@ export function CattleProvider({ children }: { children: ReactNode }) {
     fetchInitialData();
   }, []);
 
-  // ─── 2. Realtime: cattle_inventory (status update langsung) ───
+  // ─── 2. Realtime: cattle_inventory ────────────────────────
   useEffect(() => {
     const channel = supabase
       .channel('cattle_inventory_realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'cattle_inventory' },
-        (payload) => {
-          console.log('🔄 Perubahan cattle_inventory:', payload.eventType, payload.new);
-
-          if (payload.eventType === 'INSERT' && payload.new) {
-            const newCow = mapInventoryToCattle(payload.new);
-            setCattleData(prev => {
-              // Hindari duplikat
-              if (prev.some(c => c.id === newCow.id)) return prev;
-              return [...prev, newCow];
-            });
-            toast.success(`Sapi baru terdaftar: ${newCow.id}`, { description: newCow.name });
-          }
-
-          if (payload.eventType === 'UPDATE' && payload.new) {
-            const updatedCow = mapInventoryToCattle(payload.new);
-            setCattleData(prev =>
-              prev.map(c => c.id === updatedCow.id ? updatedCow : c)
-            );
-          }
-
-          if (payload.eventType === 'DELETE' && payload.old) {
-            setCattleData(prev => prev.filter(c => c.id !== (payload.old as { id: string }).id));
-          }
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cattle_inventory' }, (payload) => {
+        if (payload.eventType === 'INSERT' && payload.new) {
+          const newCow = mapInventoryToCattle(payload.new);
+          setCattleData(prev => {
+            if (prev.some(c => c.id === newCow.id)) return prev;
+            return [...prev, newCow];
+          });
+          toast.success(`Sapi baru terdaftar: ${newCow.id}`, { description: newCow.name });
         }
-      )
+        if (payload.eventType === 'UPDATE' && payload.new) {
+          const updatedCow = mapInventoryToCattle(payload.new);
+          setCattleData(prev => prev.map(c => c.id === updatedCow.id ? updatedCow : c));
+        }
+        if (payload.eventType === 'DELETE' && payload.old) {
+          setCattleData(prev => prev.filter(c => c.id !== (payload.old as { id: string }).id));
+        }
+      })
       .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log('📡 Realtime cattle_inventory aktif');
-          setConnectionStatus('connected');
-        }
+        if (status === 'SUBSCRIBED') setConnectionStatus('connected');
       });
 
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  // ─── 3. Realtime: sensor_data (data mentah dari hardware) ───
+  // ─── 3. Realtime: sensor_data ─────────────────────────────
   useEffect(() => {
     const channel = supabase
       .channel('sensor_data_realtime')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'sensor_data' },
-        (payload) => {
-          const d = payload.new as {
-            cattle_id: string;
-            temperature: number;
-            chewing_rate: number;
-            battery_level: number;
-            status: string;
-          };
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sensor_data' }, (payload) => {
+        const d = payload.new as {
+          cattle_id: string;
+          temperature: number;
+          chewing_rate: number;
+          rssi: number | null;
+          status: string;
+        };
 
-          console.log('📥 Data sensor baru:', d);
-
-          // Update cattle state secara optimis (tanpa menunggu cattle_inventory update)
-          setCattleData(prev =>
-            prev.map(c => {
-              if (c.id !== d.cattle_id) return c;
-
-              const temp = d.temperature;
-              const chewing = d.chewing_rate;
-              const isAnomaly = temp >= 39.5 || chewing < 30;
-              const isWarning = temp >= 39.1 || chewing < 50;
-
-              return {
-                ...c,
-                temp: temp.toFixed(1),
-                chewing: `${chewing}x/menit`,
-                battery: d.battery_level,
-                status: isAnomaly || isWarning ? 'warning' : 'normal',
-                lastUpdated: new Date().toISOString(),
-                rumination: {
-                  ...c.rumination,
-                  frequency: `${chewing}x/mnt`,
-                },
-              };
-            })
-          );
-        }
-      )
-      .subscribe(() => {
-        console.log('📡 Realtime sensor_data aktif');
-      });
+        setCattleData(prev =>
+          prev.map(c => {
+            if (c.id !== d.cattle_id) return c;
+            const temp = d.temperature;
+            const chewing = d.chewing_rate;
+            return {
+              ...c,
+              temp: temp.toFixed(1),
+              chewing: `${chewing}x/menit`,
+              rssi: d.rssi ?? c.rssi,
+              lastUpdated: new Date().toISOString(),
+            };
+          })
+        );
+      })
+      .subscribe();
 
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  // ─── 4. Realtime: notifications dari backend ────────────
+  // ─── 4. Realtime: notifications ───────────────────────────
   useEffect(() => {
     const channel = supabase
       .channel('notifications_realtime')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'notifications' },
-        (payload) => {
-          const notif = payload.new as {
-            id: number;
-            cattle_id: string;
-            message: string;
-            type: string;
-            created_at: string;
-          };
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications' }, (payload) => {
+        const notif = payload.new as {
+          id: number;
+          cattle_id: string;
+          message: string;
+          type: string;
+          created_at: string;
+        };
 
-          console.log('🔔 Notifikasi baru:', notif);
+        const newAppNotif: AppNotification = {
+          id: notif.id ?? Date.now(),
+          type: notif.type === 'warning' || notif.type === 'danger' ? 'warning' : 'info',
+          message: `${notif.cattle_id}: ${notif.message}`,
+          time: 'Baru saja',
+          cattleId: notif.cattle_id,
+          isRead: false,
+        };
 
-          const newAppNotif: AppNotification = {
-            id: notif.id ?? Date.now(),
-            type: notif.type === 'warning' || notif.type === 'danger' ? 'warning' : 'info',
-            message: `${notif.cattle_id}: ${notif.message}`,
-            time: 'Baru saja',
-            cattleId: notif.cattle_id,
-            isRead: false,
-          };
+        setNotifications(prev => [newAppNotif, ...prev]);
 
-          setNotifications(prev => [newAppNotif, ...prev]);
-
-          // Tampilkan toast
-          if (notif.type === 'warning' || notif.type === 'danger') {
-            toast.error(`⚠️ Peringatan: ${notif.cattle_id}`, {
-              description: notif.message,
-              duration: 8000,
-            });
-          }
+        if (notif.type === 'warning' || notif.type === 'danger') {
+          toast.error(`⚠️ Peringatan: ${notif.cattle_id}`, {
+            description: notif.message,
+            duration: 8000,
+          });
         }
-      )
-      .subscribe(() => {
-        console.log('📡 Realtime notifications aktif');
-      });
+      })
+      .subscribe();
 
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  // ─── CRUD operations ────────────────────────────────────
+  // ─── 5. Realtime: ESP battery ─────────────────────────────
+  useEffect(() => {
+    const channel = supabase
+      .channel('esp_battery_realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'esp_status' }, (payload) => {
+        if (payload.new && (payload.new as any).battery != null) {
+          setEspBattery((payload.new as any).battery);
+        }
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  // ─── 6. Realtime: rel_config ──────────────────────────────
+  useEffect(() => {
+    const channel = supabase
+      .channel('rel_config_realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rel_config' }, () => {
+        // Reload all configs on any change
+        supabase.from('rel_config').select('*').order('rel_number', { ascending: true })
+          .then(({ data }) => { if (data) setRelConfigs(data); });
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  // ─── CRUD operations ─────────────────────────────────────
   const addCattle = useCallback((newCow: CattleData) => {
     setCattleData(prev => [newCow, ...prev]);
   }, []);
@@ -354,6 +298,19 @@ export function CattleProvider({ children }: { children: ReactNode }) {
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
   }, []);
 
+  const updateRelConfig = useCallback(async (relNumber: number, cattleCount: number) => {
+    const { error } = await supabase
+      .from('rel_config')
+      .update({ cattle_count: cattleCount })
+      .eq('rel_number', relNumber);
+    if (error) {
+      toast.error('Gagal update konfigurasi Rel');
+    } else {
+      setRelConfigs(prev => prev.map(r => r.rel_number === relNumber ? { ...r, cattle_count: cattleCount } : r));
+      toast.success(`Rel ${relNumber} diatur ke ${cattleCount} sapi`);
+    }
+  }, []);
+
   const selectedCattle = cattleData.find(c => c.id === selectedCattleId) ?? cattleData[0] ?? null;
 
   return (
@@ -370,6 +327,9 @@ export function CattleProvider({ children }: { children: ReactNode }) {
       addNotification,
       isLoading,
       connectionStatus,
+      espBattery,
+      relConfigs,
+      updateRelConfig,
     }}>
       {children}
     </CattleContext.Provider>

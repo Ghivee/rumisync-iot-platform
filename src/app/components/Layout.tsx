@@ -16,7 +16,7 @@ const BatteryIndicator = ({ level }: { level: number }) => {
   const { fill, border, icon } = getColors();
 
   return (
-    <div className="flex items-center gap-1.5" title={`${Math.round(level)}% Battery`}>
+    <div className="flex items-center gap-1.5" title={`${Math.round(level)}% Battery ESP`}>
       <div className={`relative w-8 h-[16px] border-[2px] ${border} rounded-[4px] p-[1.5px] flex items-center bg-rs-card`}>
         <div className="w-full h-full rounded-[1px] overflow-hidden flex justify-start">
           <div 
@@ -37,18 +37,10 @@ export function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
   const [showNotifications, setShowNotifications] = useState(false);
-  const [batteryLevel, setBatteryLevel] = useState(65);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
 
-  const { notifications, markNotificationAsRead, setSelectedCattleId, selectedCattle, connectionStatus } = useCattle();
-
-  useEffect(() => {
-    // Update battery level from real cattle sensor data if available
-    if (selectedCattle && selectedCattle.battery != null) {
-      setBatteryLevel(selectedCattle.battery);
-    }
-  }, [selectedCattle]);
+  const { notifications, markNotificationAsRead, setSelectedCattleId, connectionStatus, espBattery } = useCattle();
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -79,6 +71,12 @@ export function Layout() {
     { path: "/eco-nutrition", icon: Leaf, label: "Nutrisi" },
     { path: "/system-control", icon: Settings, label: "Sistem" }
   ];
+
+  const ConnectionBadge = () => {
+    if (connectionStatus === 'connected') return <Wifi className="w-4 h-4 text-rs-primary" />;
+    if (connectionStatus === 'error') return <WifiOff className="w-4 h-4 text-[#c25944]" />;
+    return <Loader2 className="w-4 h-4 text-rs-muted animate-spin" />;
+  };
 
   return (
     <div className="flex flex-col md:flex-row bg-rs-bg selection:bg-rs-primary selection:text-white w-full overflow-x-hidden" style={{ height: '100dvh', minHeight: '-webkit-fill-available' }}>
@@ -115,17 +113,25 @@ export function Layout() {
           })}
         </div>
 
-        <div className="p-4 border-t border-rs-border flex justify-center lg:justify-start items-center gap-3">
-          <BatteryIndicator level={batteryLevel} />
-          <div className="hidden lg:block text-xs font-bold text-rs-muted">
-            Hardware Aktif
+        <div className="p-4 border-t border-rs-border flex flex-col gap-2">
+          <div className="flex justify-center lg:justify-start items-center gap-3">
+            <BatteryIndicator level={espBattery} />
+            <div className="hidden lg:block text-xs font-bold text-rs-muted">
+              Baterai ESP
+            </div>
+          </div>
+          <div className="flex justify-center lg:justify-start items-center gap-2">
+            <ConnectionBadge />
+            <span className="hidden lg:block text-xs font-bold text-rs-muted">
+              {connectionStatus === 'connected' ? 'Supabase Aktif' : connectionStatus === 'error' ? 'Terputus' : 'Menghubungkan...'}
+            </span>
           </div>
         </div>
       </aside>
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        {/* Top Header - shrink-0 so it never gets squished */}
+        {/* Top Header */}
         <header className="bg-rs-card border-b border-rs-border px-4 sm:px-8 py-4 flex items-center justify-between z-30 shadow-sm shrink-0">
           <Link to="/" className="flex items-center gap-3 md:hidden group">
             <div className="w-12 h-12 flex items-center justify-center flex-shrink-0 bg-rs-sage-light rounded-xl p-1.5 shadow-sm group-hover:scale-105 transition-transform">
@@ -136,22 +142,8 @@ export function Layout() {
           
           {/* Desktop/Tablet Global Context Header Items */}
           <div className="hidden md:flex flex-1 items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="text-rs-muted font-medium text-sm lg:text-base">
-                Beranda {location.pathname !== '/' && `> ${navigationItems.find(n => isActive(n.path))?.label}`}
-              </div>
-              {/* Realtime Connection Indicator */}
-              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${
-                connectionStatus === 'connected' ? 'bg-[#e8f5ee] text-[#4c7766] border-[#6b8e7b]/20' :
-                connectionStatus === 'error' ? 'bg-[#fee2e2] text-[#c25944] border-[#fca5a5]/20' :
-                'bg-[#fef3c7] text-[#d97706] border-[#d97706]/20'
-              }`}>
-                {connectionStatus === 'connected' ? <Wifi className="w-3 h-3" /> :
-                 connectionStatus === 'error' ? <WifiOff className="w-3 h-3" /> :
-                 <Loader2 className="w-3 h-3 animate-spin" />}
-                {connectionStatus === 'connected' ? 'Realtime Aktif' :
-                 connectionStatus === 'error' ? 'Koneksi Gagal' : 'Menghubungkan...'}
-              </div>
+            <div className="text-rs-muted font-medium text-sm lg:text-base">
+              Beranda {location.pathname !== '/' && `> ${navigationItems.find(n => isActive(n.path))?.label}`}
             </div>
 
             <div className="flex items-center gap-6">
@@ -217,7 +209,7 @@ export function Layout() {
 
           {/* Mobile Right Controls */}
           <div className="flex md:hidden items-center gap-3">
-            <BatteryIndicator level={batteryLevel} />
+            <BatteryIndicator level={espBattery} />
             <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="p-2 text-rs-primary bg-rs-bg border border-rs-border rounded-xl relative hover:bg-rs-border transition-colors">
               <Bell className="w-6 h-6" />
               {unreadCount > 0 && <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-[#c25944] rounded-full border-2 border-rs-card"></span>}
@@ -246,19 +238,19 @@ export function Layout() {
                       </div>
                     </div>
                   </div>
-                )) : (
+               )) : (
                   <p className="text-sm text-rs-muted">Tidak ada notifikasi aktif.</p>
-                )}
+               )}
              </div>
           </div>
         )}
 
-        {/* Main Routed Content - flex-1 + overflow-y-auto is the correct scroll pattern */}
+        {/* Main Routed Content */}
         <main className="flex-1 overflow-y-auto overflow-x-hidden bg-rs-bg">
           <Outlet />
         </main>
 
-        {/* Mobile Bottom Navigation - shrink-0 keeps it at bottom of flex column */}
+        {/* Mobile Bottom Navigation */}
         <nav className="md:hidden bg-rs-card border-t border-rs-border px-2 py-3 z-40 shrink-0 shadow-[0_-4px_20px_rgba(0,0,0,0.04)]" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
           <div className="flex justify-around items-center max-w-lg mx-auto">
             {navigationItems.map((item) => {

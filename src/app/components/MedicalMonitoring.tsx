@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Search, HeartPulse, Activity as ActivityIcon, PhoneCall, Filter } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Area, AreaChart } from "recharts";
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Area, AreaChart } from "recharts";
 import { motion } from "motion/react";
 import { toast } from "sonner";
 import { useCattle } from "../context/CattleContext";
@@ -10,6 +10,21 @@ interface SensorRecord {
   temperature: number;
   chewing_rate: number;
   recorded_at: string;
+}
+
+// Format tanggal lengkap: Hari, DD MMM YYYY, HH:MM WIB
+function formatLastUpdated(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+  const day = days[d.getDay()];
+  const date = d.getDate();
+  const month = months[d.getMonth()];
+  const year = d.getFullYear();
+  const hours = d.getHours().toString().padStart(2, '0');
+  const minutes = d.getMinutes().toString().padStart(2, '0');
+  return `${day}, ${date} ${month} ${year} — ${hours}:${minutes} WIB`;
 }
 
 export function MedicalMonitoring() {
@@ -35,7 +50,7 @@ export function MedicalMonitoring() {
 
     async function fetchHistory() {
       setLoadingHistory(true);
-      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(); // 24 jam terakhir
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const { data, error } = await supabase
         .from('sensor_data')
         .select('temperature, chewing_rate, recorded_at')
@@ -51,7 +66,7 @@ export function MedicalMonitoring() {
 
     fetchHistory();
 
-    // Subscribe realtime: ketika data baru masuk, update histori
+    // Subscribe realtime
     const channel = supabase
       .channel(`sensor_history_${selectedCattleId}`)
       .on('postgres_changes', {
@@ -74,16 +89,16 @@ export function MedicalMonitoring() {
 
   const isSick = parseFloat(selectedCattle.temp) >= 39.5 || selectedCattle.health <= 80;
 
-  // Grafik suhu — hanya data real dari Supabase
+  // Grafik suhu
   const temperatureData = sensorHistory.map(r => ({
     time: new Date(r.recorded_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
     temp: parseFloat(r.temperature.toFixed(1)),
   }));
 
-  // Grafik ruminasi — hanya data real dari Supabase
+  // Grafik ruminasi — sekarang KURVA (AreaChart), bukan BarChart
   const ruminationData = sensorHistory.map(r => ({
-    hour: new Date(r.recorded_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
-    duration: r.chewing_rate,
+    time: new Date(r.recorded_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+    chewing: r.chewing_rate,
   }));
 
   const handleContactVet = () => {
@@ -201,10 +216,6 @@ export function MedicalMonitoring() {
                 <span className="text-rs-text font-bold">{selectedCattle.chewing}</span>
               </div>
               <div className="flex justify-between items-center p-4 bg-rs-sage-light rounded-xl">
-                <span className="text-sm font-medium text-rs-muted">Baterai Sensor:</span>
-                <span className={`font-bold ${selectedCattle.battery <= 20 ? 'text-[#c25944]' : 'text-rs-primary'}`}>{selectedCattle.battery}%</span>
-              </div>
-              <div className="flex justify-between items-center p-4 bg-rs-sage-light rounded-xl">
                 <span className="text-sm font-medium text-rs-muted">Usia Tercatat:</span>
                 <span className="text-sm font-bold text-rs-text">{selectedCattle.age.year}t {selectedCattle.age.month}b {selectedCattle.age.day}h</span>
               </div>
@@ -212,12 +223,12 @@ export function MedicalMonitoring() {
                 <span className="text-sm font-medium text-rs-muted">Ras Dominan:</span>
                 <span className="text-sm font-bold text-rs-text">{selectedCattle.breed}</span>
               </div>
-              {selectedCattle.lastUpdated && (
-                <div className="flex justify-between items-center p-4 bg-rs-sage-light rounded-xl">
-                  <span className="text-sm font-medium text-rs-muted">Update Terakhir:</span>
-                  <span className="text-xs font-bold text-rs-text">{new Date(selectedCattle.lastUpdated).toLocaleTimeString('id-ID')}</span>
-                </div>
-              )}
+              <div className="flex justify-between items-center p-4 bg-rs-sage-light rounded-xl">
+                <span className="text-sm font-medium text-rs-muted">Update Terakhir:</span>
+                <span className="text-[10px] sm:text-xs font-bold text-rs-text text-right max-w-[180px]">
+                  {formatLastUpdated(selectedCattle.lastUpdated)}
+                </span>
+              </div>
             </div>
 
             {isSick && (
@@ -238,6 +249,7 @@ export function MedicalMonitoring() {
 
         {/* Charts */}
         <div className="lg:col-span-2 space-y-4 sm:space-y-8">
+          {/* Kurva Suhu */}
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-rs-card rounded-3xl shadow-sm border border-rs-border p-4 sm:p-8">
             <div className="mb-6 flex items-center gap-3">
               <div className="p-3 bg-[#fee2e2] rounded-xl text-[#c25944]"><HeartPulse className="w-6 h-6" /></div>
@@ -276,11 +288,12 @@ export function MedicalMonitoring() {
             )}
           </motion.div>
 
+          {/* Kurva Ruminasi — sekarang AreaChart (kurva), bukan BarChart */}
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-rs-card rounded-3xl shadow-sm border border-rs-border p-4 sm:p-8">
             <div className="mb-6 flex items-center gap-3">
               <div className="p-3 bg-rs-border rounded-xl text-rs-primary"><ActivityIcon className="w-6 h-6" /></div>
               <div>
-                <h3 className="text-xl font-bold text-rs-text">Grafik Ruminasi Real-Time</h3>
+                <h3 className="text-xl font-bold text-rs-text">Kurva Ruminasi Real-Time (24 Jam)</h3>
                 <p className="text-sm text-rs-muted">
                   {ruminationData.length > 0
                     ? `${ruminationData.length} data terkini · Normal: di atas 60x/mnt`
@@ -296,14 +309,20 @@ export function MedicalMonitoring() {
               <EmptyChart message="Belum ada histori ruminasi untuk sapi ini" />
             ) : (
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={ruminationData}>
+                <AreaChart data={ruminationData}>
+                  <defs>
+                    <linearGradient id="chewGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={isSick ? "#d97706" : "#4c7766"} stopOpacity={0.4}/>
+                      <stop offset="95%" stopColor={isSick ? "#d97706" : "#4c7766"} stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8e4" vertical={false} />
-                  <XAxis dataKey="hour" stroke="#6b8e7b" style={{ fontSize: '12px', fontWeight: 500 }} axisLine={false} tickLine={false} />
+                  <XAxis dataKey="time" stroke="#6b8e7b" style={{ fontSize: '12px', fontWeight: 500 }} axisLine={false} tickLine={false} />
                   <YAxis domain={[0, 100]} stroke="#6b8e7b" style={{ fontSize: '12px', fontWeight: 500 }} axisLine={false} tickLine={false} />
-                  <Tooltip cursor={{ fill: '#f4f5f2' }} contentStyle={{ backgroundColor: 'white', border: '1px solid #e2e8e4', borderRadius: '12px', padding: '12px' }} labelStyle={{ color: '#6b7280' }} itemStyle={{ color: '#6b8e7b', fontWeight: 'bold' }} formatter={(v) => [`${v}x/mnt`, 'Kunyahan']} />
-                  <Bar dataKey="duration" fill={isSick ? "#d97706" : "#4c7766"} radius={[8, 8, 8, 8]} barSize={24} />
+                  <Tooltip contentStyle={{ backgroundColor: 'white', border: '1px solid #e2e8e4', borderRadius: '12px', padding: '12px' }} labelStyle={{ color: '#6b7280' }} itemStyle={{ color: '#6b8e7b', fontWeight: 'bold' }} formatter={(v) => [`${v}x/mnt`, 'Kunyahan']} />
+                  <Area type="monotone" dataKey="chewing" stroke={isSick ? "#d97706" : "#4c7766"} strokeWidth={3} fill="url(#chewGradient)" dot={{ r: 4, fill: isSick ? "#d97706" : "#4c7766" }} activeDot={{ r: 6 }} />
                   <ReferenceLine y={60} stroke="#c25944" strokeDasharray="5 5" strokeWidth={2} label={{ value: 'Ambang Kritis 60x/mnt', position: 'insideTopRight', fill: '#c25944', fontSize: 13, fontWeight: 'bold' }} />
-                </BarChart>
+                </AreaChart>
               </ResponsiveContainer>
             )}
           </motion.div>

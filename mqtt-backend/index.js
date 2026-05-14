@@ -54,11 +54,20 @@ function computeHealthScore(temp, chewing) {
 
 mqttClient.on('message', async (topic, message) => {
   try {
-    const data = JSON.parse(message.toString());
-
+    // Parse dan jadikan semua key lowercase agar kebal dari typo Arduino (RSSI vs rssi)
+    const rawData = JSON.parse(message.toString());
+    const data = Object.keys(rawData).reduce((acc, key) => {
+      acc[key.toLowerCase()] = rawData[key];
+      return acc;
+    }, {});
 
     // ─── Handle data sapi ──────────────────────────────────
-    const cattleId = topic.split('/').pop();
+    let rawId = topic.split('/').pop().toUpperCase(); // Pastikan uppercase (id-001 -> ID-001)
+    if (!rawId.startsWith('ID-')) {
+      // Jika Arduino kirim "1" atau "001", jadikan "ID-001"
+      rawId = `ID-${rawId.padStart(3, '0')}`;
+    }
+    const cattleId = rawId;
 
     if (!cattleId) return;
 
@@ -76,12 +85,14 @@ mqttClient.on('message', async (topic, message) => {
     // Jika hanya mengirim RSSI & Baterai (Sapi belum dekat palung makanan)
     if (data.temp == null || data.chewing == null) {
       if (data.rssi != null) {
-        const { error } = await supabase
+        const { data: updatedData, error } = await supabase
           .from('cattle_inventory')
           .update({ current_rssi: data.rssi, last_updated: new Date().toISOString() })
-          .eq('id', cattleId);
+          .eq('id', cattleId)
+          .select();
         
         if (error) console.error('❌ Gagal update RSSI cattle_inventory:', error.message);
+        else if (!updatedData || updatedData.length === 0) console.log(`⚠️ ID Sapi [${cattleId}] tidak ada di database! Tolong daftar dulu.`);
         else console.log(`✅ Update RSSI [${cattleId}] ke ${data.rssi}`);
       }
       return; // Selesai memproses partial payload

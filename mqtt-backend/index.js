@@ -1,6 +1,7 @@
 import mqtt from 'mqtt';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
+import http from 'http';
 
 dotenv.config();
 
@@ -147,4 +148,16 @@ mqttClient.on('message', async (topic, message) => {
   } catch (err) {
     console.error('⚠️ Error memproses MQTT:', err.message);
   }
+});
+
+// ─── Dummy HTTP Server untuk Railway ───────────────────────
+// Railway mengharuskan aplikasi mengikat port (bind to PORT) agar tidak di-kill dengan SIGTERM
+const port = process.env.PORT || 3000;
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('RumiSync MQTT Backend is running!\n');
+});
+
+server.listen(port, () => {
+  console.log(`✅ Dummy HTTP server listening on port ${port} (untuk Railway health check)`);
 });

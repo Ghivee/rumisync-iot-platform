@@ -28,10 +28,7 @@ mqttClient.on('connect', () => {
     if (!err) console.log('📡 Subscribe: rumisync/cattle/+');
     else console.error('❌ Subscribe gagal:', err.message);
   });
-  // Subscribe juga ke topik status ESP (baterai global)
-  mqttClient.subscribe('rumisync/esp/status', err => {
-    if (!err) console.log('📡 Subscribe: rumisync/esp/status');
-  });
+
 });
 
 mqttClient.on('reconnect', () => console.log('🔄 Reconnecting MQTT...'));
@@ -58,19 +55,6 @@ mqttClient.on('message', async (topic, message) => {
   try {
     const data = JSON.parse(message.toString());
 
-    // ─── Handle ESP status (baterai global) ────────────────
-    if (topic === 'rumisync/esp/status') {
-      if (data.battery != null) {
-        console.log(`🔋 Baterai ESP: ${data.battery}%`);
-        // Simpan ke tabel esp_status
-        await supabase.from('esp_status').upsert({
-          id: 'main',
-          battery: data.battery,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'id' });
-      }
-      return;
-    }
 
     // ─── Handle data sapi ──────────────────────────────────
     const cattleId = topic.split('/').pop();
@@ -81,6 +65,15 @@ mqttClient.on('message', async (topic, message) => {
     }
 
     console.log(`\n📥 Data baru dari ${cattleId}:`, data);
+
+    // Update ESP Battery jika ada di payload
+    if (data.battery != null) {
+      await supabase.from('esp_status').upsert({
+        id: 'main',
+        battery: data.battery,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'id' });
+    }
 
     // Hitung skor kesehatan dari suhu & kunyahan
     const healthScore = computeHealthScore(data.temp, data.chewing);

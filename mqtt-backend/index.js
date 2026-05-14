@@ -62,10 +62,10 @@ mqttClient.on('message', async (topic, message) => {
     }, {});
 
     // ─── Handle data sapi ──────────────────────────────────
-    let rawId = topic.split('/').pop().toUpperCase(); // Pastikan uppercase (id-001 -> ID-001)
-    if (!rawId.startsWith('ID-')) {
-      // Jika Arduino kirim "1" atau "001", jadikan "ID-001"
-      rawId = `ID-${rawId.padStart(3, '0')}`;
+    let rawId = topic.split('/').pop().toUpperCase();
+    const numbersOnly = rawId.replace(/\D/g, ''); // Ambil hanya angka
+    if (numbersOnly) {
+      rawId = `ID-${numbersOnly.padStart(3, '0')}`;
     }
     const cattleId = rawId;
 

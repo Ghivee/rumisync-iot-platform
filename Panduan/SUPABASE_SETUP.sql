@@ -79,19 +79,23 @@ CREATE TABLE rel_config (
 );
 
 -- ==============================================================================
--- PENTING: BYPASS ROW LEVEL SECURITY (RLS) UNTUK FRONTEND
--- (Memastikan aplikasi React / anon key bisa membaca & menulis)
+-- PENTING: MENGAKTIFKAN RLS & MEMBUAT POLICY TERBUKA
+-- Supabase menyarankan RLS aktif. Jadi kita aktifkan, tapi kita beri izin akses penuh.
 -- ==============================================================================
-ALTER TABLE cattle_inventory DISABLE ROW LEVEL SECURITY;
-ALTER TABLE sensor_data DISABLE ROW LEVEL SECURITY;
-ALTER TABLE notifications DISABLE ROW LEVEL SECURITY;
-ALTER TABLE esp_status DISABLE ROW LEVEL SECURITY;
-ALTER TABLE feed_records DISABLE ROW LEVEL SECURITY;
-ALTER TABLE rel_config DISABLE ROW LEVEL SECURITY;
+ALTER TABLE cattle_inventory ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sensor_data ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE esp_status ENABLE ROW LEVEL SECURITY;
+ALTER TABLE feed_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE rel_config ENABLE ROW LEVEL SECURITY;
 
--- (Jika tidak ingin disable RLS, Anda bisa membuat policy terbuka sebagai gantinya)
--- CREATE POLICY "Allow all actions" ON cattle_inventory FOR ALL USING (true);
--- ... dll.
+-- Buat policy agar website (anon key) bisa membaca & menulis secara bebas (khusus prototype)
+CREATE POLICY "Public Access" ON cattle_inventory FOR ALL USING (true);
+CREATE POLICY "Public Access" ON sensor_data FOR ALL USING (true);
+CREATE POLICY "Public Access" ON notifications FOR ALL USING (true);
+CREATE POLICY "Public Access" ON esp_status FOR ALL USING (true);
+CREATE POLICY "Public Access" ON feed_records FOR ALL USING (true);
+CREATE POLICY "Public Access" ON rel_config FOR ALL USING (true);
 
 -- ==============================================================================
 -- DATA AWAL SISTEM

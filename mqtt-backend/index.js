@@ -59,14 +59,11 @@ mqttClient.on('message', async (topic, message) => {
     // ─── Handle data sapi ──────────────────────────────────
     const cattleId = topic.split('/').pop();
 
-    if (!cattleId || data.temp == null || data.chewing == null) {
-      console.warn('⚠️ Payload tidak valid:', { topic, data });
-      return;
-    }
+    if (!cattleId) return;
 
     console.log(`\n📥 Data baru dari ${cattleId}:`, data);
 
-    // Update ESP Battery jika ada di payload
+    // Update ESP Battery jika ada di payload (bisa terkirim tanpa suhu)
     if (data.battery != null) {
       await supabase.from('esp_status').upsert({
         id: 'main',
@@ -75,6 +72,21 @@ mqttClient.on('message', async (topic, message) => {
       }, { onConflict: 'id' });
     }
 
+    // Jika hanya mengirim RSSI & Baterai (Sapi belum dekat palung makanan)
+    if (data.temp == null || data.chewing == null) {
+      if (data.rssi != null) {
+        const { error } = await supabase
+          .from('cattle_inventory')
+          .update({ current_rssi: data.rssi, last_updated: new Date().toISOString() })
+          .eq('id', cattleId);
+        
+        if (error) console.error('❌ Gagal update RSSI cattle_inventory:', error.message);
+        else console.log(`✅ Update RSSI [${cattleId}] ke ${data.rssi}`);
+      }
+      return; // Selesai memproses partial payload
+    }
+
+    // Jika masuk ke sini, artinya ESP mengirim data lengkap (Suhu & Kunyahan)
     // Hitung skor kesehatan dari suhu & kunyahan
     const healthScore = computeHealthScore(data.temp, data.chewing);
     const isAnomaly = healthScore < 60;

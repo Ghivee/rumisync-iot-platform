@@ -298,7 +298,7 @@ export function EcoNutrition() {
       </div>
 
       {/* Eco-Boosters */}
-      {hasInput && methane >= 110 && (
+      {hasInput && (
         <div className="bg-rs-card rounded-2xl border border-rs-border shadow-sm p-4 sm:p-6">
           <div className="flex items-center gap-2 mb-3">
             <FlaskConical className="w-4 h-4 text-rs-primary" />

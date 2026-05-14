@@ -13,7 +13,7 @@ export function SystemControl() {
   const [currentCattleIndex, setCurrentCattleIndex] = useState(0);
   const [currentBatchIndex, setCurrentBatchIndex] = useState(0);
 
-  const { addCattle, cattleData, notifications, relConfigs, updateRelConfig } = useCattle();
+  const { addCattle, cattleData, notifications, relConfigs, updateRelConfig, addRelConfig, deleteRelConfig } = useCattle();
 
   // Batches calculation based on relConfigs
   const batches = useMemo(() => {
@@ -89,7 +89,10 @@ export function SystemControl() {
   // Rel config form state
   const [editingRel, setEditingRel] = useState<number | null>(null);
   const [editRelCount, setEditRelCount] = useState<number>(10);
-
+  const [newRelCount, setNewRelCount] = useState<number>(10);
+  const [showAddRel, setShowAddRel] = useState(false);
+  const [newMacAddress, setNewMacAddress] = useState("");
+  
   useEffect(() => {
     if (cattlePositions.length === 0) return;
     const interval = setInterval(() => {
@@ -135,8 +138,9 @@ export function SystemControl() {
     setTimeout(() => {
       setIsScanning(false);
       toast.dismiss(toastId);
+      setNewMacAddress("A1:B2:C3:D4:E5:F6");
       toast.success("Scan Selesai!", {
-        description: "iTag terdeteksi. Silakan isi form pendaftaran.",
+        description: "iTag terdeteksi. MAC Address otomatis terisi.",
         style: { minHeight: '64px', fontSize: '16px' }
       });
     }, 2000);
@@ -178,6 +182,7 @@ export function SystemControl() {
     setNewCattleAgeYear("");
     setNewCattleAgeMonth("");
     setNewCattleAgeDay("");
+    setNewMacAddress("");
   };
 
   return (
@@ -273,10 +278,26 @@ export function SystemControl() {
                       <div className="flex items-center gap-3">
                         <span className="font-bold text-[#4c7766] bg-[#e2e8e4] px-3 py-1 rounded-lg">{rel.cattle_count} Sapi</span>
                         <button onClick={() => { setEditingRel(rel.rel_number); setEditRelCount(rel.cattle_count); }} className="text-[#6b7280] hover:text-[#4c7766] text-sm font-bold underline">Ubah</button>
+                        <button onClick={() => deleteRelConfig(rel.rel_number)} className="text-[#c25944] hover:text-red-700 text-sm font-bold underline ml-1">Hapus</button>
                       </div>
                     )}
                   </div>
                 ))}
+                
+                {showAddRel ? (
+                  <div className="flex items-center justify-between p-4 bg-[#e2f0ea] border border-[#6b8e7b] rounded-xl">
+                    <div className="font-bold text-sm text-[#2d3a33]">Rel Baru</div>
+                    <div className="flex items-center gap-2">
+                      <input type="number" min={1} max={50} value={newRelCount} onChange={e => setNewRelCount(Number(e.target.value))} className="w-16 px-2 py-1 text-center font-bold border-2 border-[#6b8e7b] rounded-lg" />
+                      <button onClick={() => { addRelConfig(newRelCount); setShowAddRel(false); }} className="px-3 py-1 bg-[#4c7766] text-white font-bold rounded-lg text-sm">Simpan</button>
+                      <button onClick={() => setShowAddRel(false)} className="px-3 py-1 bg-[#e2e8e4] text-[#2d3a33] font-bold rounded-lg text-sm">Batal</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button onClick={() => setShowAddRel(true)} className="w-full py-3 border-2 border-dashed border-[#c1d1c8] text-[#4c7766] font-bold rounded-xl hover:bg-[#f4f5f2] transition-colors flex items-center justify-center gap-2">
+                    <Plus className="w-4 h-4" /> Tambah Rel
+                  </button>
+                )}
               </div>
             </motion.div>
 
@@ -362,6 +383,17 @@ export function SystemControl() {
                 {isScanning ? <div className="animate-spin h-4 w-4 border-2 border-[#4c7766] border-t-transparent rounded-full"></div> : <Bluetooth className="w-5 h-5" />}
                 <span>{isScanning ? "Mencari iTag..." : "Pindai iTag Bluetooth"}</span>
               </button>
+              
+              <div className="flex items-center gap-2 py-1">
+                <div className="h-px bg-[#e2e8e4] flex-1"></div>
+                <span className="text-xs text-[#6b7280] font-bold">ATAU</span>
+                <div className="h-px bg-[#e2e8e4] flex-1"></div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-[#2d3a33] mb-2">MAC Address iTag (Manual)</label>
+                <input type="text" value={newMacAddress} onChange={(e) => setNewMacAddress(e.target.value)} placeholder="00:1B:44:11:3A:B7" className="w-full px-4 py-3 bg-[#fcfbf9] border-2 border-[#e2e8e4] rounded-xl focus:border-[#4c7766] font-bold" />
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div><label className="block text-sm font-bold text-[#2d3a33] mb-2">ID Register</label><input type="text" value={generatedId} disabled className="w-full px-4 py-3 bg-[#e2e8e4] border-2 border-[#e2e8e4] rounded-xl cursor-not-allowed font-bold" /></div>
                 <div><label className="block text-sm font-bold text-[#2d3a33] mb-2">Nama Relatif</label><input type="text" value={newCattleName} onChange={(e) => setNewCattleName(e.target.value)} placeholder="Sapi Lokal - 025" className="w-full px-4 py-3 bg-[#fcfbf9] border-2 border-[#e2e8e4] rounded-xl focus:border-[#4c7766] font-bold" /></div>

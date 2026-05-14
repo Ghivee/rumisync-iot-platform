@@ -95,6 +95,8 @@ interface CattleContextType {
   espBattery: number;
   relConfigs: RelConfig[];
   updateRelConfig: (relNumber: number, cattleCount: number) => void;
+  addRelConfig: (cattleCount: number) => void;
+  deleteRelConfig: (relNumber: number) => void;
 }
 
 const CattleContext = createContext<CattleContextType | undefined>(undefined);
@@ -311,6 +313,32 @@ export function CattleProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const addRelConfig = useCallback(async (cattleCount: number) => {
+    const nextRelNumber = relConfigs.length > 0 ? Math.max(...relConfigs.map(r => r.rel_number)) + 1 : 1;
+    const newRel = {
+      rel_number: nextRelNumber,
+      cattle_count: cattleCount,
+      label: `Rel ${nextRelNumber}`
+    };
+    const { data, error } = await supabase.from('rel_config').insert([newRel]).select().single();
+    if (error) {
+      toast.error('Gagal menambah Rel');
+    } else if (data) {
+      setRelConfigs(prev => [...prev, data].sort((a, b) => a.rel_number - b.rel_number));
+      toast.success(`Rel ${nextRelNumber} berhasil ditambahkan`);
+    }
+  }, [relConfigs]);
+
+  const deleteRelConfig = useCallback(async (relNumber: number) => {
+    const { error } = await supabase.from('rel_config').delete().eq('rel_number', relNumber);
+    if (error) {
+      toast.error('Gagal menghapus Rel');
+    } else {
+      setRelConfigs(prev => prev.filter(r => r.rel_number !== relNumber));
+      toast.success(`Rel ${relNumber} berhasil dihapus`);
+    }
+  }, []);
+
   const selectedCattle = cattleData.find(c => c.id === selectedCattleId) ?? cattleData[0] ?? null;
 
   return (
@@ -330,6 +358,8 @@ export function CattleProvider({ children }: { children: ReactNode }) {
       espBattery,
       relConfigs,
       updateRelConfig,
+      addRelConfig,
+      deleteRelConfig,
     }}>
       {children}
     </CattleContext.Provider>

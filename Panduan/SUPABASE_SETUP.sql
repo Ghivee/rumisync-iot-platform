@@ -90,12 +90,24 @@ ALTER TABLE feed_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE rel_config ENABLE ROW LEVEL SECURITY;
 
 -- Buat policy agar website (anon key) bisa membaca & menulis secara bebas (khusus prototype)
-CREATE POLICY "Public Access" ON cattle_inventory FOR ALL USING (true);
-CREATE POLICY "Public Access" ON sensor_data FOR ALL USING (true);
-CREATE POLICY "Public Access" ON notifications FOR ALL USING (true);
-CREATE POLICY "Public Access" ON esp_status FOR ALL USING (true);
-CREATE POLICY "Public Access" ON feed_records FOR ALL USING (true);
-CREATE POLICY "Public Access" ON rel_config FOR ALL USING (true);
+CREATE POLICY "Public Access" ON cattle_inventory FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public Access" ON sensor_data FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public Access" ON notifications FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public Access" ON esp_status FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public Access" ON feed_records FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public Access" ON rel_config FOR ALL USING (true) WITH CHECK (true);
+
+-- ==============================================================================
+-- KUNCI UTAMA: REPLICA IDENTITY FULL
+-- Tanpa ini, Supabase Realtime TIDAK akan mengirim event UPDATE/DELETE
+-- ke frontend. Ini WAJIB agar data ter-update secara real-time di Vercel.
+-- ==============================================================================
+ALTER TABLE cattle_inventory REPLICA IDENTITY FULL;
+ALTER TABLE sensor_data REPLICA IDENTITY FULL;
+ALTER TABLE notifications REPLICA IDENTITY FULL;
+ALTER TABLE esp_status REPLICA IDENTITY FULL;
+ALTER TABLE feed_records REPLICA IDENTITY FULL;
+ALTER TABLE rel_config REPLICA IDENTITY FULL;
 
 -- ==============================================================================
 -- DATA AWAL SISTEM
@@ -113,11 +125,24 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- ==============================================================================
--- AKTIFKAN REALTIME
+-- AKTIFKAN REALTIME (Aman dijalankan berulang kali)
 -- ==============================================================================
+DO $$
+BEGIN
+  -- Hapus dulu kalau sudah ada (supaya tidak error duplicate)
+  ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS cattle_inventory;
+  ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS sensor_data;
+  ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS notifications;
+  ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS esp_status;
+  ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS feed_records;
+  ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS rel_config;
+EXCEPTION WHEN OTHERS THEN
+  NULL; -- Abaikan error jika belum ada
+END $$;
+
+ALTER PUBLICATION supabase_realtime ADD TABLE cattle_inventory;
 ALTER PUBLICATION supabase_realtime ADD TABLE sensor_data;
 ALTER PUBLICATION supabase_realtime ADD TABLE notifications;
-ALTER PUBLICATION supabase_realtime ADD TABLE cattle_inventory;
 ALTER PUBLICATION supabase_realtime ADD TABLE esp_status;
 ALTER PUBLICATION supabase_realtime ADD TABLE feed_records;
 ALTER PUBLICATION supabase_realtime ADD TABLE rel_config;

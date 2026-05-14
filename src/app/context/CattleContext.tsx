@@ -155,9 +155,11 @@ export function CattleProvider({ children }: { children: ReactNode }) {
 
   // ─── 2. Realtime: cattle_inventory ────────────────────────
   useEffect(() => {
+    console.log('🔌 Setting up Realtime subscription: cattle_inventory');
     const channel = supabase
       .channel('cattle_inventory_realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'cattle_inventory' }, (payload) => {
+        console.log('📡 Realtime cattle_inventory event:', payload.eventType, payload.new);
         if (payload.eventType === 'INSERT' && payload.new) {
           const newCow = mapInventoryToCattle(payload.new);
           setCattleData(prev => {
@@ -175,17 +177,24 @@ export function CattleProvider({ children }: { children: ReactNode }) {
         }
       })
       .subscribe((status) => {
+        console.log('📡 cattle_inventory subscription status:', status);
         if (status === 'SUBSCRIBED') setConnectionStatus('connected');
+        if (status === 'CHANNEL_ERROR') {
+          console.error('❌ cattle_inventory Realtime channel error');
+          setConnectionStatus('error');
+        }
       });
 
     return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [])
 
   // ─── 3. Realtime: sensor_data ─────────────────────────────
   useEffect(() => {
+    console.log('🔌 Setting up Realtime subscription: sensor_data');
     const channel = supabase
       .channel('sensor_data_realtime')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sensor_data' }, (payload) => {
+        console.log('📡 Realtime sensor_data INSERT:', payload.new);
         const d = payload.new as {
           cattle_id: string;
           temperature: number;
@@ -209,10 +218,12 @@ export function CattleProvider({ children }: { children: ReactNode }) {
           })
         );
       })
-      .subscribe();
+      .subscribe((status) => {
+        console.log('📡 sensor_data subscription status:', status);
+      });
 
     return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [])
 
   // ─── 4. Realtime: notifications ───────────────────────────
   useEffect(() => {
@@ -252,14 +263,18 @@ export function CattleProvider({ children }: { children: ReactNode }) {
 
   // ─── 5. Realtime: ESP battery ─────────────────────────────
   useEffect(() => {
+    console.log('🔌 Setting up Realtime subscription: esp_status');
     const channel = supabase
       .channel('esp_battery_realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'esp_status' }, (payload) => {
+        console.log('📡 Realtime esp_status event:', payload.new);
         if (payload.new && (payload.new as any).battery != null) {
           setEspBattery((payload.new as any).battery);
         }
       })
-      .subscribe();
+      .subscribe((status) => {
+        console.log('📡 esp_status subscription status:', status);
+      });
 
     return () => { supabase.removeChannel(channel); };
   }, []);

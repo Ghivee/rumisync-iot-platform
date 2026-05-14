@@ -125,21 +125,10 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- ==============================================================================
--- AKTIFKAN REALTIME (Aman dijalankan berulang kali)
+-- AKTIFKAN REALTIME
+-- Karena tabel baru saja di-DROP dan di-CREATE ulang, mereka pasti belum
+-- terdaftar di publication. Langsung ADD saja.
 -- ==============================================================================
-DO $$
-BEGIN
-  -- Hapus dulu kalau sudah ada (supaya tidak error duplicate)
-  ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS cattle_inventory;
-  ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS sensor_data;
-  ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS notifications;
-  ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS esp_status;
-  ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS feed_records;
-  ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS rel_config;
-EXCEPTION WHEN OTHERS THEN
-  NULL; -- Abaikan error jika belum ada
-END $$;
-
 ALTER PUBLICATION supabase_realtime ADD TABLE cattle_inventory;
 ALTER PUBLICATION supabase_realtime ADD TABLE sensor_data;
 ALTER PUBLICATION supabase_realtime ADD TABLE notifications;

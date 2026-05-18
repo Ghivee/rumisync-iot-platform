@@ -2,8 +2,16 @@ import mqtt from 'mqtt';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import http from 'http';
+import { WebSocket } from 'ws';
 
 dotenv.config();
+
+// Polyfill WebSocket untuk Node.js 18 (Railway default)
+// Supabase Realtime membutuhkan global WebSocket
+if (!globalThis.WebSocket) {
+  globalThis.WebSocket = WebSocket;
+  console.log('🔧 WebSocket polyfill aktif (Node <20)');
+}
 
 // ─── 1. HTTP SERVER DIMULAI PERTAMA ────────────────────────
 // Railway langsung health-check port saat startup.

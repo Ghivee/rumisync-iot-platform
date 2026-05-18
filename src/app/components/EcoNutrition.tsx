@@ -30,8 +30,6 @@ const ECO_BOOSTERS = [
   { id: 'minyak_kelapa', label: 'Minyak Kelapa', category: 'Minyak & Lemak', reduction: 0.15, icon: '🥥' },
   { id: 'minyak_bunga', label: 'Minyak Bunga Matahari', category: 'Minyak & Lemak', reduction: 0.18, icon: '🌻' },
   { id: 'minyak_ikan', label: 'Minyak Ikan', category: 'Minyak & Lemak', reduction: 0.20, icon: '🐟' },
-  { id: 'lerak', label: 'Buah Lerak', category: 'Saponin & Tanin', reduction: 0.16, icon: '🫐' },
-  { id: 'akasia', label: 'Daun Akasia', category: 'Saponin & Tanin', reduction: 0.19, icon: '🌿' },
   { id: 'peppermint', label: 'Minyak Peppermint', category: 'Minyak Atsiri', reduction: 0.25, icon: '🌱' },
   { id: 'bawang_putih', label: 'Minyak Bawang Putih', category: 'Minyak Atsiri', reduction: 0.30, icon: '🧄' },
 ];

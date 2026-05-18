@@ -296,7 +296,7 @@ export function MedicalMonitoring() {
                 <h3 className="text-xl font-bold text-rs-text">Kurva Ruminasi Real-Time (24 Jam)</h3>
                 <p className="text-sm text-rs-muted">
                   {ruminationData.length > 0
-                    ? `${ruminationData.length} data terkini · Normal: di atas 60x/mnt`
+                    ? `${ruminationData.length} data terkini · Normal: di atas 50x/mnt`
                     : 'Menunggu data dari hardware/MQTT...'}
                 </p>
               </div>
@@ -321,7 +321,7 @@ export function MedicalMonitoring() {
                   <YAxis domain={[0, 100]} stroke="#6b8e7b" style={{ fontSize: '12px', fontWeight: 500 }} axisLine={false} tickLine={false} />
                   <Tooltip contentStyle={{ backgroundColor: 'white', border: '1px solid #e2e8e4', borderRadius: '12px', padding: '12px' }} labelStyle={{ color: '#6b7280' }} itemStyle={{ color: '#6b8e7b', fontWeight: 'bold' }} formatter={(v) => [`${v}x/mnt`, 'Kunyahan']} />
                   <Area type="monotone" dataKey="chewing" stroke={isSick ? "#d97706" : "#4c7766"} strokeWidth={3} fill="url(#chewGradient)" dot={{ r: 4, fill: isSick ? "#d97706" : "#4c7766" }} activeDot={{ r: 6 }} />
-                  <ReferenceLine y={60} stroke="#c25944" strokeDasharray="5 5" strokeWidth={2} label={{ value: 'Ambang Kritis 60x/mnt', position: 'insideTopRight', fill: '#c25944', fontSize: 13, fontWeight: 'bold' }} />
+                  <ReferenceLine y={50} stroke="#c25944" strokeDasharray="5 5" strokeWidth={2} label={{ value: 'Ambang Kritis 50x/mnt', position: 'insideTopRight', fill: '#c25944', fontSize: 13, fontWeight: 'bold' }} />
                 </AreaChart>
               </ResponsiveContainer>
             )}

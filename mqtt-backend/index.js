@@ -113,35 +113,61 @@ function initServices() {
     console.warn('⚠️ MQTT Offline');
   });
 
-  // ─── GHSI: Global Health Score Index ────────────────────────
-  // Implementasi sesuai kode kesehatan.txt
-  function normalizeCPM(cpm, tempC) {
-    const THI = tempC * 1.8 + 20; // estimasi THI tropis lembab
-    return THI >= 72 ? cpm * (1 + 0.129) : cpm;
+  // ═══════════════════════════════════════════════════════════
+  // GHSI — Global Health Score Index
+  // Sumber: kode kesehatan.txt (implementasi PERSIS sesuai rumus)
+  // ═══════════════════════════════════════════════════════════
+
+  // 1. Kompensasi stres panas (THI)
+  //    Di Indonesia (tropis lembab), THI ambient selalu ≥ 72,
+  //    sehingga normalisasi CPM SELALU diterapkan.
+  //    CPM_normalized = CPM_obs × (1 + 0.129)   jika THI ≥ 72
+  //    CPM_normalized = CPM_obs                  jika THI < 72
+  function normalizeCPM(cpm_obs) {
+    // THI tropis Indonesia selalu ≥ 72 → selalu normalisasi
+    return cpm_obs * (1 + 0.129);
   }
 
-  function calcTSub(t) {
-    if (t <= 39.8) return 100;
-    if (t <= 40.8) return Math.max(0, 100 - Math.pow(t - 39.8, 2) * 90);
-    return 0; // hiperpireksia
+  // 2. Sub-Indeks Suhu (T_sub)
+  //    T_sub = 100                            jika T ≤ 39.8°C
+  //    T_sub = 100 − [(T−39.8)² × 90]        jika 39.8 < T ≤ 40.8°C
+  //    T_sub = 0                              jika T > 40.8°C (hiperpireksia)
+  function calcTSub(T) {
+    if (T <= 39.8) return 100;
+    if (T <= 40.8) return 100 - (Math.pow(T - 39.8, 2) * 90);
+    return 0;
   }
 
-  function calcRSub(cpmNorm) {
-    if (cpmNorm >= 50) return 100;
-    if (cpmNorm >= 40) return Math.max(0, 100 - Math.pow(50 - cpmNorm, 2) * 1.5);
-    return Math.max(0, 40 - Math.pow(40 - cpmNorm, 2) * 4);
+  // 3. Sub-Indeks Ruminasi (R_sub)
+  //    R_sub = 100                                    jika CPM_norm ≥ 50
+  //    R_sub = 100 − [(50−CPM_norm)² × 1.5]          jika 40 ≤ CPM_norm < 50
+  //    R_sub = max(0, 40 − [(40−CPM_norm)² × 4])     jika CPM_norm < 40
+  function calcRSub(CPM_norm) {
+    if (CPM_norm >= 50) return 100;
+    if (CPM_norm >= 40) return 100 - (Math.pow(50 - CPM_norm, 2) * 1.5);
+    return Math.max(0, 40 - (Math.pow(40 - CPM_norm, 2) * 4));
   }
 
+  // 4–6. Hitung GHSI final
+  //    Base    = (T_sub × 0.4) + (R_sub × 0.6)
+  //    Penalty = (100−T_sub)/100 × (100−R_sub)/100 × 50
+  //    GHSI    = max(1, Base − Penalty)
   function computeGHSI(tempC, chewingRaw) {
-    const cpmNorm = normalizeCPM(chewingRaw, tempC);
-    const tSub = calcTSub(tempC);
-    const rSub = calcRSub(cpmNorm);
-    const base = (tSub * 0.4) + (rSub * 0.6);
-    const penalty = ((100 - tSub) / 100) * ((100 - rSub) / 100) * 50;
-    const ghsi = Math.max(1, Math.round(base - penalty));
+    const CPM_norm = normalizeCPM(chewingRaw);
+    const T_sub    = calcTSub(tempC);
+    const R_sub    = calcRSub(CPM_norm);
+    const Base     = (T_sub * 0.4) + (R_sub * 0.6);
+    const Penalty  = ((100 - T_sub) / 100) * ((100 - R_sub) / 100) * 50;
+    const GHSI     = Math.max(1, Math.round(Base - Penalty));
 
-    console.log(`   📊 GHSI: T=${tempC}°C CPM_norm=${cpmNorm.toFixed(1)} T_sub=${tSub.toFixed(1)} R_sub=${rSub.toFixed(1)} Base=${base.toFixed(1)} Penalty=${penalty.toFixed(1)} → GHSI=${ghsi}`);
-    return ghsi;
+    console.log(
+      `   📊 GHSI Calc:\n` +
+      `      CPM_obs=${chewingRaw} → CPM_norm=${CPM_norm.toFixed(2)}\n` +
+      `      T_sub=${T_sub.toFixed(2)}  R_sub=${R_sub.toFixed(2)}\n` +
+      `      Base=${Base.toFixed(2)}  Penalty=${Penalty.toFixed(2)}\n` +
+      `      GHSI = max(1, ${Base.toFixed(2)} − ${Penalty.toFixed(2)}) = ${GHSI}`
+    );
+    return GHSI;
   }
 
   // ─── MQTT Message Handler ─────────────────────────────────
@@ -221,10 +247,14 @@ function initServices() {
       const healthStatus = isAnomaly ? 'Sakit' : isWarning ? 'Pantauan' : 'Aman';
 
       let alertMessage = '';
-      if (temp > 40.8) alertMessage = `HIPERPIREKSIA! Suhu ${temp.toFixed(1)}°C sangat berbahaya.`;
-      else if (temp > 39.8) alertMessage = `Suhu tinggi (${temp.toFixed(1)}°C). Indikasi demam/infeksi!`;
-      else if (chewing < 30) alertMessage = `Kunyahan sangat rendah (${chewing}x/mnt). Gangguan pencernaan serius.`;
-      else if (chewing < 40) alertMessage = `Kunyahan rendah (${chewing}x/mnt). Pantau kondisi sapi.`;
+      // Threshold mengacu pada CPM_norm boundary di R_sub:
+      //   CPM_norm ≥ 50  → normal  (raw ≥ 50/1.129 ≈ 44)
+      //   40 ≤ CPM_norm < 50 → zona kuning (raw 35–44)
+      //   CPM_norm < 40  → zona merah  (raw < 35)
+      if (temp > 40.8)       alertMessage = `HIPERPIREKSIA! Suhu ${temp.toFixed(1)}°C sangat berbahaya.`;
+      else if (temp > 39.8)  alertMessage = `Suhu tinggi (${temp.toFixed(1)}°C). Indikasi demam/infeksi!`;
+      else if (chewing < 35) alertMessage = `Kunyahan sangat rendah (${chewing}x/mnt). Gangguan pencernaan serius.`;
+      else if (chewing < 44) alertMessage = `Kunyahan rendah (${chewing}x/mnt). Pantau kondisi sapi.`;
 
       // STEP 1: Upsert cattle_inventory
       const { error: upsertErr } = await supabase.from('cattle_inventory').upsert({

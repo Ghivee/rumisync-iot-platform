@@ -6,25 +6,28 @@ import { useCattle } from "../context/CattleContext";
 import { supabase } from "../../lib/supabase";
 
 const SERAT_OPTIONS = [
-  { id: 'jerami_padi', label: 'Jerami Padi / Silase Jerami Padi', methaneFactor: 1.80 },
-  { id: 'pucuk_tebu', label: 'Pucuk Tebu / Silase Pucuk Tebu', methaneFactor: 1.65 },
-  { id: 'pelepah_sawit', label: 'Pelepah Sawit / Silase Pelepah Sawit', methaneFactor: 1.55 },
-  { id: 'jerami_jagung', label: 'Jerami Jagung (Tebon)', methaneFactor: 1.42 },
-  { id: 'rumput_gajah', label: 'Rumput Gajah / Odot / Lapangan', methaneFactor: 1.25 },
+  { id: 'pucuk_tebu', label: 'Pucuk Tebu', ipm: 1.30 },
+  { id: 'rumput_raja', label: 'Rumput Raja', ipm: 1.15 },
+  { id: 'rumput_gajah', label: 'Rumput Gajah', ipm: 1.10 },
+  { id: 'rumput_bd', label: 'Rumput BD (Brachiaria decumbens)', ipm: 1.10 },
+  { id: 'rumput_setaria', label: 'Rumput Setaria', ipm: 1.05 },
+  { id: 'rumput_gama_umami', label: 'Rumput Gama Umami', ipm: 1.00 },
+  { id: 'daun_nangka', label: 'Daun Nangka', ipm: 0.95 },
+  { id: 'daun_pepaya', label: 'Daun Pepaya', ipm: 0.90 },
+  { id: 'rendeng', label: 'Rendeng (Kacang Tanah)', ipm: 0.85 },
+  { id: 'lamtoro', label: 'Lamtoro', ipm: 0.80 },
 ];
 const PATI_OPTIONS = [
-  { id: 'bis', label: 'Bungkil Inti Sawit (BIS)', methaneFactor: 0.72 },
-  { id: 'jagung', label: 'Jagung Giling / Silase Jagung', methaneFactor: 0.65 },
-  { id: 'dedak', label: 'Dedak Padi / Bekatul', methaneFactor: 0.78 },
-  { id: 'pollard', label: 'Pollard Gandum', methaneFactor: 0.80 },
-];
-const PROTEIN_OPTIONS = [
-  { id: 'none', label: 'Tidak Ada (Opsional)', reduction: 0 },
-  { id: 'gamal', label: 'Daun Gamal', reduction: 0.12 },
-  { id: 'indigofera', label: 'Indigofera sp.', reduction: 0.15 },
-  { id: 'lamtoro', label: 'Daun Lamtoro / Kaliandra', reduction: 0.10 },
-  { id: 'alfalfa', label: 'Alfalfa', reduction: 0.14 },
-  { id: 'bungkil_kopra', label: 'Bungkil Kopra', reduction: 0.08 },
+  { id: 'dedak_padi', label: 'Dedak Padi', ipm: 0.65 },
+  { id: 'jagung', label: 'Jagung', ipm: 0.60 },
+  { id: 'ketan_hitam', label: 'Ketan Hitam', ipm: 0.55 },
+  { id: 'millet_kenari', label: 'Millet & Biji Kenari', ipm: 0.55 },
+  { id: 'bungkil_sawit', label: 'Bungkil Kelapa Sawit', ipm: 0.50 },
+  { id: 'bungkil_kedelai', label: 'Bungkil Kedelai', ipm: 0.45 },
+  { id: 'bungkil_kacang_tanah', label: 'Bungkil Kacang Tanah', ipm: 0.45 },
+  { id: 'ampas_tahu', label: 'Ampas Tahu', ipm: 0.45 },
+  { id: 'tepung_ikan', label: 'Tepung Ikan', ipm: 0.30 },
+  { id: 'tepung_daging_tulang', label: 'Tepung Daging & Tulang (MBM)', ipm: 0.30 },
 ];
 const ECO_BOOSTERS = [
   { id: 'minyak_kelapa', label: 'Minyak Kelapa', category: 'Minyak & Lemak', reduction: 0.15, icon: '🥥' },
@@ -34,30 +37,39 @@ const ECO_BOOSTERS = [
   { id: 'bawang_putih', label: 'Minyak Bawang Putih', category: 'Minyak Atsiri', reduction: 0.30, icon: '🧄' },
 ];
 
-const MAX_METHANE = 270;
+const MAX_METHANE = 400;
 
-// DMI-based methane: CH4 (g/day) = DMI(kg) × EF × blendFactor × reductions
-// DMI = 2.5% of body weight. Avg cow ~400kg → DMI ≈ 10 kg/day
-// EF (Emission Factor IPCC Tier 2) ≈ 21.6 g CH4/kg DMI for tropical cattle
-function calcMethaneDMI(seratId: string, patiId: string, proteinId: string, ratio: number, boosterId: string | null, bodyWeightKg: number): { methane: number; dmi: number } {
+// DMI-based methane: CH4 (g/day) = DMI(kg) × Baseline × IPM_gabungan × Faktor_ruminasi
+// DMI = 2.5% of body weight.
+function calcMethaneDMI(seratId: string, patiId: string, ratio: number, boosterId: string | null, bodyWeightKg: number, breed: string): { methane: number; dmi: number } {
   const dmi = bodyWeightKg * 0.025;
-  const baseCH4perKgDMI = 21.6;
+  const breedLower = breed.toLowerCase();
+  
+  let baseline = 21; // Pedaging
+  if (breedLower.includes('perah') || breedLower.includes('impor') || breedLower.includes('holstein')) {
+    baseline = 22;
+  } else if (breedLower.includes('bali') || breedLower.includes('po') || breedLower.includes('madura')) {
+    baseline = 19;
+  }
+
   const serat = SERAT_OPTIONS.find(s => s.id === seratId);
   const pati = PATI_OPTIONS.find(p => p.id === patiId);
-  const protein = PROTEIN_OPTIONS.find(pr => pr.id === proteinId);
   const booster = boosterId ? ECO_BOOSTERS.find(b => b.id === boosterId) : null;
   if (!serat || !pati) return { methane: 0, dmi };
-  const blendedFactor = serat.methaneFactor * (ratio / 100) + pati.methaneFactor * ((100 - ratio) / 100);
-  let m = dmi * baseCH4perKgDMI * blendedFactor;
-  if (protein && protein.reduction > 0) m *= (1 - protein.reduction);
+  
+  const ipmGabungan = serat.ipm * (ratio / 100) + pati.ipm * ((100 - ratio) / 100);
+  const faktorRuminasi = 500 / 500; // Asumsi default 500 menit/hari untuk estimasi awal
+  
+  let m = dmi * baseline * ipmGabungan * faktorRuminasi;
   if (booster) m *= (1 - booster.reduction);
+  
   return { methane: Math.round(Math.min(MAX_METHANE, Math.max(0, m))), dmi: parseFloat(dmi.toFixed(1)) };
 }
 
 function getMethaneZone(v: number) {
   if (v === 0) return { label: '⏳ Menunggu Input Pakan', color: '#6b7280', bg: '#f4f5f2', border: '#e2e8e4', zone: 'empty' };
-  if (v < 110) return { label: '✅ Zona Hijau — Emisi Rendah', color: '#4c7766', bg: '#e2f0ea', border: '#a7f3d0', zone: 'green' };
-  if (v < 175) return { label: '⚠️ Zona Kuning — Emisi Sedang', color: '#d97706', bg: '#fef3c7', border: '#fde68a', zone: 'yellow' };
+  if (v < 180) return { label: '✅ Zona Hijau — Emisi Rendah', color: '#4c7766', bg: '#e2f0ea', border: '#a7f3d0', zone: 'green' };
+  if (v < 250) return { label: '⚠️ Zona Kuning — Emisi Sedang', color: '#d97706', bg: '#fef3c7', border: '#fde68a', zone: 'yellow' };
   return { label: '🔴 Zona Merah — Emisi Tinggi', color: '#c25944', bg: '#fee2e2', border: '#fca5a5', zone: 'red' };
 }
 
@@ -79,7 +91,6 @@ function generateAIRecommendation(
   methane: number,
   seratId: string,
   patiId: string,
-  proteinId: string,
   ratio: number,
   boosterId: string | null,
   zone: ReturnType<typeof getMethaneZone>
@@ -93,11 +104,11 @@ function generateAIRecommendation(
   }
 
   const serat = SERAT_OPTIONS.find(s => s.id === seratId);
-  const protein = PROTEIN_OPTIONS.find(p => p.id === proteinId);
+  const pati = PATI_OPTIONS.find(p => p.id === patiId);
   const hasBooster = boosterId !== null;
   const highFiberRatio = ratio > 65;
   const lowPatiRatio = 100 - ratio < 35;
-  const noProtein = proteinId === 'none';
+  const isHighIpm = (serat?.ipm ?? 1) > 1.10;
 
   let headline = '';
   let detail = '';
@@ -108,19 +119,25 @@ function generateAIRecommendation(
   if (zone.zone === 'red') {
     headline = `🔴 Zona Merah — Perlu Optimasi Segera`;
     if (highFiberRatio) {
-      detail = `Porsi ${serat?.label ?? 'Serat'} cukup tinggi (${ratio}%). Geser rasio pati ke ${Math.min(ratio - 10, 55)}% agar propionat meningkat. ${noProtein ? 'Tambahkan protein hijau seperti Daun Gamal untuk mempercepat penurunan.' : 'Kombinasi protein yang dipilih sudah membantu.'}`;
-      potentialReduction = noProtein ? 22 : 15;
-    } else {
-      detail = `Emisi ${methane}g/hari melebihi batas aman. Pertimbangkan ganti sumber serat ke Rumput Gajah (faktor lebih rendah).`;
+      detail = `Porsi ${serat?.label ?? 'Serat'} cukup tinggi (${ratio}%). Geser rasio pati ke ${Math.min(ratio - 10, 55)}% agar propionat meningkat.`;
+      potentialReduction = 15;
+    } else if (isHighIpm) {
+      detail = `Bahan ${serat?.label} memiliki potensi metana tinggi (IPM ${serat?.ipm}). Pertimbangkan ganti ke sumber berserat dengan IPM lebih rendah seperti Lamtoro.`;
       potentialReduction = 20;
+    } else {
+      detail = `Emisi ${methane}g/hari melebihi batas aman.`;
+      potentialReduction = 18;
     }
     action = 'Eco-Booster direkomendasikan untuk mendorong ke Zona Hijau.';
     boosterSuggestion = hasBooster ? null : 'bawang_putih';
   } else if (zone.zone === 'yellow') {
     headline = `⚠️ Zona Kuning — Perlu Optimasi`;
     if (highFiberRatio || lowPatiRatio) {
-      detail = `Porsi ${serat?.label ?? 'Serat'} cukup tinggi (${ratio}%). Geser rasio pati ke 55% agar propionat meningkat. ${noProtein ? 'Tambahkan protein hijau seperti Daun Gamal untuk mempercepat penurunan.' : `Protein ${protein?.label ?? ''} membantu reduksi +${Math.round((protein?.reduction ?? 0) * 100)}%.`}`;
+      detail = `Porsi ${serat?.label ?? 'Serat'} cukup tinggi (${ratio}%). Geser rasio pati ke 55% agar propionat meningkat.`;
       potentialReduction = 18;
+    } else if (isHighIpm) {
+       detail = `Bahan ${serat?.label} (IPM ${serat?.ipm}) bisa diganti dengan alternatif IPM lebih rendah.`;
+       potentialReduction = 15;
     } else {
       detail = `Komposisi seimbang tapi emisi masih di zona kuning (${methane}g/hari). Optimalkan dengan Eco-Booster.`;
       potentialReduction = 12;
@@ -170,21 +187,21 @@ export function EcoNutrition() {
   // Input state — start EMPTY (not pre-filled)
   const [seratId, setSeratId] = useState('');
   const [patiId, setPatiId] = useState('');
-  const [proteinId, setProteinId] = useState('none');
   const [ratio, setRatio] = useState(60);
   const [boosterId, setBoosterId] = useState<string | null>(null);
   const [bodyWeight, setBodyWeight] = useState(400);
   const [isSaving, setIsSaving] = useState(false);
 
   const hasInput = seratId !== '' && patiId !== '';
+  const currentRel = batches[Math.min(relIdx, batches.length - 1)];
+  const breed = currentRel?.cattle[0]?.breed || 'Brahman Cross';
+  
   const { methane, dmi } = useMemo(() =>
-    hasInput ? calcMethaneDMI(seratId, patiId, proteinId, ratio, boosterId, bodyWeight) : { methane: 0, dmi: 0 },
-    [seratId, patiId, proteinId, ratio, boosterId, bodyWeight, hasInput]
+    hasInput ? calcMethaneDMI(seratId, patiId, ratio, boosterId, bodyWeight, breed) : { methane: 0, dmi: 0 },
+    [seratId, patiId, ratio, boosterId, bodyWeight, breed, hasInput]
   );
   const zone = getMethaneZone(methane);
   const rotation = needleRotation(methane);
-  const currentRel = batches[Math.min(relIdx, batches.length - 1)];
-
   const boosterCats = ECO_BOOSTERS.reduce((acc, b) => {
     if (!acc[b.category]) acc[b.category] = [];
     acc[b.category].push(b);
@@ -199,7 +216,6 @@ export function EcoNutrition() {
       cattle_id: c.id,
       serat_id: seratId,
       pati_id: patiId,
-      protein_id: proteinId,
       ratio_serat: ratio,
       booster_id: boosterId,
       methane_estimate: methane,
@@ -217,7 +233,7 @@ export function EcoNutrition() {
   // Reset input saat ganti rel
   const handleRelChange = (newIdx: number) => {
     setRelIdx(newIdx);
-    setSeratId(''); setPatiId(''); setProteinId('none'); setBoosterId(null);
+    setSeratId(''); setPatiId(''); setBoosterId(null);
   };
 
   return (
@@ -290,13 +306,7 @@ export function EcoNutrition() {
                 {PATI_OPTIONS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
               </select>
             </div>
-            <div>
-              <label className="flex items-center gap-1.5 text-xs font-bold text-rs-text mb-1">🌿 Sumber Protein</label>
-              <select value={proteinId} onChange={e => setProteinId(e.target.value)}
-                className="w-full px-3 py-2.5 min-h-[44px] bg-rs-card-sub border-2 border-rs-border rounded-xl focus:outline-none focus:border-rs-primary transition-all text-rs-text text-sm appearance-none">
-                {PROTEIN_OPTIONS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
-              </select>
-            </div>
+
             <div>
               <label className="flex items-center gap-1.5 text-xs font-bold text-rs-text mb-1">🐄 Berat Badan Sapi (kg)</label>
               <input type="number" value={bodyWeight} onChange={e => setBodyWeight(Number(e.target.value) || 0)} min={100} max={1000}
@@ -323,7 +333,7 @@ export function EcoNutrition() {
               <div className="p-2 bg-rs-primary/10 rounded-xl"><Flame className="w-4 h-4 text-rs-primary" /></div>
               <div>
                 <h2 className="text-sm sm:text-base font-bold text-rs-text">Monitor Emisi Metana (DMI)</h2>
-                <p className="text-xs text-rs-muted">CH₄ = DMI × 21.6 × blendFactor × reduksi</p>
+                <p className="text-xs text-rs-muted">CH₄ = DMI × Baseline × IPM_gabungan × Faktor_ruminasi</p>
               </div>
             </div>
           </div>
@@ -334,9 +344,9 @@ export function EcoNutrition() {
                 <path d="M 72.3 19.4 A 90 90 0 0 1 152.9 32.2" fill="none" stroke="#fef3c7" strokeWidth="20" strokeLinecap="butt" />
                 <path d="M 152.9 32.2 A 90 90 0 0 1 190 105" fill="none" stroke="#fee2e2" strokeWidth="20" strokeLinecap="butt" />
                 <text x="8" y="112" fill="#6b8e7b" fontSize="7.5" fontWeight="bold" textAnchor="middle">0</text>
-                <text x="50" y="26" fill="#4c7766" fontSize="7.5" fontWeight="bold" textAnchor="middle">110</text>
-                <text x="160" y="22" fill="#d97706" fontSize="7.5" fontWeight="bold" textAnchor="middle">175</text>
-                <text x="193" y="112" fill="#c25944" fontSize="7.5" fontWeight="bold" textAnchor="middle">270</text>
+                <text x="50" y="26" fill="#4c7766" fontSize="7.5" fontWeight="bold" textAnchor="middle">180</text>
+                <text x="160" y="22" fill="#d97706" fontSize="7.5" fontWeight="bold" textAnchor="middle">250</text>
+                <text x="193" y="112" fill="#c25944" fontSize="7.5" fontWeight="bold" textAnchor="middle">400</text>
                 <text x="100" y="8" fill="#6b8e7b" fontSize="7" fontWeight="bold" textAnchor="middle">g/hari</text>
                 <g transform={`translate(100, 105) rotate(${rotation})`}>
                   <path d="M -3 6 L 0 -80 L 3 6 Z" fill="#2d3a33" />
@@ -396,7 +406,7 @@ export function EcoNutrition() {
 
       {/* ─── AI Feed Optimizer Panel ─────────────────────────── */}
       {(() => {
-        const aiRec = generateAIRecommendation(methane, seratId, patiId, proteinId, ratio, boosterId, zone);
+        const aiRec = generateAIRecommendation(methane, seratId, patiId, ratio, boosterId, zone);
         const suggestedBooster = aiRec.boosterSuggestion ? ECO_BOOSTERS.find(b => b.id === aiRec.boosterSuggestion) : null;
         const bgMap = { green: '#f0fdf4', yellow: '#fefce8', red: '#fff7f5', empty: '#f8fafc' };
         const borderMap = { green: '#bbf7d0', yellow: '#fde68a', red: '#fecaca', empty: '#e2e8f0' };

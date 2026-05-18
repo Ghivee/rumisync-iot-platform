@@ -1,0 +1,22 @@
+// 1. Kompensasi stres panas (THI)
+CPM_normalized = CPM_obs × (1 + 0.129) — jika THI ≥ 72
+CPM_normalized = CPM_obs — jika THI < 72
+
+// 2. Sub-Indeks Suhu (T_sub)
+T_sub = 100 — jika suhu rumen ≤ 39.8°C
+T_sub = 100 − [(T−39.8)² × 90] — jika 39.8 < T ≤ 40.8°C
+T_sub = 0 — jika T > 40.8°C (hiperpireksia)
+
+// 3. Sub-Indeks Ruminasi (R_sub)
+R_sub = 100 — jika CPM_norm ≥ 50
+R_sub = 100 − [(50−CPM_norm)² × 1.5] — jika 40 ≤ CPM_norm < 50
+R_sub = max(0, 40 − [(40−CPM_norm)² × 4]) — jika CPM_norm < 40
+
+// 4. Skor dasar (bobot: 40% termal, 60% ruminasi)
+Base = (T_sub × 0.4) + (R_sub × 0.6)
+
+// 5. Penalti sinergistik (jika keduanya parah)
+Penalty = (100−T_sub)/100 × (100−R_sub)/100 × 50
+
+// 6. GHSI final
+GHSI = max(1, Base − Penalty)

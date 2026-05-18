@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { motion } from "motion/react";
-import { Leaf, ChevronLeft, ChevronRight, Sparkles, FlaskConical, CheckCircle2, Flame, Save } from "lucide-react";
+import { Leaf, ChevronLeft, ChevronRight, Sparkles, FlaskConical, CheckCircle2, Flame, Save, Bot, Lightbulb, TrendingDown } from "lucide-react";
 import { toast } from "sonner";
 import { useCattle } from "../context/CattleContext";
 import { supabase } from "../../lib/supabase";
@@ -65,6 +65,79 @@ function getMethaneZone(v: number) {
 
 function needleRotation(v: number): number {
   return -90 + (v / MAX_METHANE) * 180;
+}
+
+// ─── AI Feed Optimizer Logic ─────────────────────────────────
+interface AIRecommendation {
+  zone: 'green' | 'yellow' | 'red' | 'empty';
+  headline: string;
+  detail: string;
+  action: string;
+  boosterSuggestion: string | null;
+  potentialReduction: number; // % emisi bisa dikurangi
+}
+
+function generateAIRecommendation(
+  methane: number,
+  seratId: string,
+  patiId: string,
+  proteinId: string,
+  ratio: number,
+  boosterId: string | null,
+  zone: ReturnType<typeof getMethaneZone>
+): AIRecommendation {
+  if (methane === 0) {
+    return {
+      zone: 'empty', headline: 'Pilih bahan pakan untuk memulai analisis AI',
+      detail: 'AI akan menganalisis komposisi pakan dan memberikan rekomendasi optimasi emisi metana secara real-time.',
+      action: '', boosterSuggestion: null, potentialReduction: 0
+    };
+  }
+
+  const serat = SERAT_OPTIONS.find(s => s.id === seratId);
+  const protein = PROTEIN_OPTIONS.find(p => p.id === proteinId);
+  const hasBooster = boosterId !== null;
+  const highFiberRatio = ratio > 65;
+  const lowPatiRatio = 100 - ratio < 35;
+  const noProtein = proteinId === 'none';
+
+  let headline = '';
+  let detail = '';
+  let action = '';
+  let boosterSuggestion: string | null = null;
+  let potentialReduction = 0;
+
+  if (zone.zone === 'red') {
+    headline = `🔴 Zona Merah — Perlu Optimasi Segera`;
+    if (highFiberRatio) {
+      detail = `Porsi ${serat?.label ?? 'Serat'} cukup tinggi (${ratio}%). Geser rasio pati ke ${Math.min(ratio - 10, 55)}% agar propionat meningkat. ${noProtein ? 'Tambahkan protein hijau seperti Daun Gamal untuk mempercepat penurunan.' : 'Kombinasi protein yang dipilih sudah membantu.'}`;
+      potentialReduction = noProtein ? 22 : 15;
+    } else {
+      detail = `Emisi ${methane}g/hari melebihi batas aman. Pertimbangkan ganti sumber serat ke Rumput Gajah (faktor lebih rendah).`;
+      potentialReduction = 20;
+    }
+    action = 'Eco-Booster direkomendasikan untuk mendorong ke Zona Hijau.';
+    boosterSuggestion = hasBooster ? null : 'bawang_putih';
+  } else if (zone.zone === 'yellow') {
+    headline = `⚠️ Zona Kuning — Perlu Optimasi`;
+    if (highFiberRatio || lowPatiRatio) {
+      detail = `Porsi ${serat?.label ?? 'Serat'} cukup tinggi (${ratio}%). Geser rasio pati ke 55% agar propionat meningkat. ${noProtein ? 'Tambahkan protein hijau seperti Daun Gamal untuk mempercepat penurunan.' : `Protein ${protein?.label ?? ''} membantu reduksi +${Math.round((protein?.reduction ?? 0) * 100)}%.`}`;
+      potentialReduction = 18;
+    } else {
+      detail = `Komposisi seimbang tapi emisi masih di zona kuning (${methane}g/hari). Optimalkan dengan Eco-Booster.`;
+      potentialReduction = 12;
+    }
+    action = hasBooster ? 'Pertahankan Eco-Booster dan monitor emisi.' : 'Tambahkan Eco-Booster Minyak Bawang Putih atau Peppermint untuk hasil terbaik.';
+    boosterSuggestion = hasBooster ? null : 'peppermint';
+  } else {
+    headline = `✅ Zona Hijau — Formulasi Optimal`;
+    detail = `Emisi ${methane}g/hari sudah dalam batas optimal. ${hasBooster ? 'Eco-Booster aktif memberikan kontribusi reduksi signifikan.' : 'Bisa tambah Eco-Booster untuk optimasi lebih lanjut.'}`;
+    action = hasBooster ? 'Formulasi sudah optimal. Terapkan ke semua rel!' : 'Pertimbangkan Eco-Booster untuk menekan emisi lebih jauh.';
+    boosterSuggestion = null;
+    potentialReduction = hasBooster ? 0 : 8;
+  }
+
+  return { zone: zone.zone as 'green' | 'yellow' | 'red', headline, detail, action, boosterSuggestion, potentialReduction };
 }
 
 export function EcoNutrition() {
@@ -322,6 +395,91 @@ export function EcoNutrition() {
           </div>
         </div>
       )}
+
+      {/* ─── AI Feed Optimizer Panel ─────────────────────────── */}
+      {(() => {
+        const aiRec = generateAIRecommendation(methane, seratId, patiId, proteinId, ratio, boosterId, zone);
+        const suggestedBooster = aiRec.boosterSuggestion ? ECO_BOOSTERS.find(b => b.id === aiRec.boosterSuggestion) : null;
+        const bgMap = { green: '#f0fdf4', yellow: '#fefce8', red: '#fff7f5', empty: '#f8fafc' };
+        const borderMap = { green: '#bbf7d0', yellow: '#fde68a', red: '#fecaca', empty: '#e2e8f0' };
+        const headerBgMap = { green: '#4c7766', yellow: '#d97706', red: '#c25944', empty: '#64748b' };
+        return (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
+            className="rounded-2xl border overflow-hidden shadow-sm"
+            style={{ backgroundColor: bgMap[aiRec.zone], borderColor: borderMap[aiRec.zone] }}
+          >
+            {/* Header */}
+            <div className="flex items-center gap-3 px-4 py-3" style={{ backgroundColor: headerBgMap[aiRec.zone] }}>
+              <div className="p-1.5 bg-white/20 rounded-lg">
+                <Bot className="w-4 h-4 text-white" />
+              </div>
+              <div>
+                <div className="text-white font-bold text-sm">Resep AI — Analisis Pakan Real-Time</div>
+                <div className="text-white/75 text-[10px]">Output berubah otomatis saat Anda mengubah bahan atau slider</div>
+              </div>
+              {aiRec.potentialReduction > 0 && (
+                <div className="ml-auto flex items-center gap-1 bg-white/20 rounded-lg px-2.5 py-1">
+                  <TrendingDown className="w-3.5 h-3.5 text-white" />
+                  <span className="text-white font-bold text-xs">-{aiRec.potentialReduction}% potensial</span>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 space-y-3">
+              {/* Headline & Detail */}
+              {aiRec.zone !== 'empty' && (
+                <div className="rounded-xl p-3.5 border" style={{ backgroundColor: bgMap[aiRec.zone], borderColor: borderMap[aiRec.zone] }}>
+                  <div className="font-bold text-sm mb-1" style={{ color: headerBgMap[aiRec.zone] }}>{aiRec.headline}</div>
+                  <p className="text-xs leading-relaxed" style={{ color: aiRec.zone === 'green' ? '#166534' : aiRec.zone === 'yellow' ? '#92400e' : '#991b1b' }}>
+                    {aiRec.detail}
+                  </p>
+                </div>
+              )}
+
+              {/* Saran Tindakan */}
+              {aiRec.action && (
+                <div className="flex gap-2.5 items-start bg-white/70 rounded-xl p-3 border" style={{ borderColor: borderMap[aiRec.zone] }}>
+                  <div className="p-1.5 rounded-lg shrink-0" style={{ backgroundColor: borderMap[aiRec.zone] }}>
+                    <Lightbulb className="w-3.5 h-3.5" style={{ color: headerBgMap[aiRec.zone] }} />
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider mb-0.5" style={{ color: headerBgMap[aiRec.zone] }}>Saran Tindakan AI</div>
+                    <p className="text-xs font-medium text-rs-text">{aiRec.action}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Eco-Booster Suggestion */}
+              {suggestedBooster && (
+                <div className="flex items-center gap-3 bg-white/70 rounded-xl p-3 border" style={{ borderColor: borderMap[aiRec.zone] }}>
+                  <span className="text-2xl">{suggestedBooster.icon}</span>
+                  <div className="flex-1">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-rs-muted mb-0.5">Rekomendasi Eco-Booster</div>
+                    <div className="text-xs font-bold text-rs-text">{suggestedBooster.label}</div>
+                    <div className="text-[10px] text-rs-muted">Reduksi emisi hingga -{Math.round(suggestedBooster.reduction * 100)}%</div>
+                  </div>
+                  <button
+                    onClick={() => setBoosterId(suggestedBooster.id)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold text-white transition-colors shrink-0"
+                    style={{ backgroundColor: headerBgMap[aiRec.zone] }}
+                  >
+                    Pakai
+                  </button>
+                </div>
+              )}
+
+              {/* Empty state */}
+              {aiRec.zone === 'empty' && (
+                <div className="text-center py-4">
+                  <Sparkles className="w-8 h-8 text-rs-muted mx-auto mb-2 opacity-50" />
+                  <p className="text-sm text-rs-muted">{aiRec.detail}</p>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        );
+      })()}
 
       {/* Tombol Terapkan — data hanya tersimpan saat peternak klik ini */}
       {hasInput && currentRel && (

@@ -42,6 +42,7 @@ export interface RelConfig {
 function mapInventoryToCattle(row: any): CattleData {
   const temp = parseFloat(row.current_temp ?? 0);
   const chewing = row.current_chewing ?? 0;
+  // health_score sudah dihitung via GHSI di backend (kode kesehatan.txt)
   const healthScore = row.health_score ?? 100;
   const isAnomaly = healthScore < 60;
   const isWarning = healthScore < 80;

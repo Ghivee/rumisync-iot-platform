@@ -37,28 +37,33 @@ const ECO_BOOSTERS = [
   { id: 'bawang_putih', label: 'Minyak Bawang Putih', category: 'Minyak Atsiri', reduction: 0.30, icon: '🧄' },
 ];
 
+const BREED_OPTIONS = [
+  { id: 'perah', label: 'Sapi Perah / Impor (Friesian Holstein)', baseline: 22 },
+  { id: 'pedaging', label: 'Sapi Pedaging (Brahman Cross / Limousin)', baseline: 21 },
+  { id: 'lokal', label: 'Sapi Lokal Asli (Bali / PO / Madura)', baseline: 19 },
+];
+
 const MAX_METHANE = 400;
 
 // DMI-based methane: CH4 (g/day) = DMI(kg) × Baseline × IPM_gabungan × Faktor_ruminasi
 // DMI = 2.5% of body weight.
-function calcMethaneDMI(seratId: string, patiId: string, ratio: number, boosterId: string | null, bodyWeightKg: number, breed: string): { methane: number; dmi: number } {
+function calcMethaneDMI(seratIds: string[], patiIds: string[], ratio: number, boosterId: string | null, bodyWeightKg: number, baseline: number, averageGHSI: number): { methane: number; dmi: number } {
   const dmi = bodyWeightKg * 0.025;
-  const breedLower = breed.toLowerCase();
   
-  let baseline = 21; // Pedaging
-  if (breedLower.includes('perah') || breedLower.includes('impor') || breedLower.includes('holstein')) {
-    baseline = 22;
-  } else if (breedLower.includes('bali') || breedLower.includes('po') || breedLower.includes('madura')) {
-    baseline = 19;
-  }
+  if (seratIds.length === 0 || patiIds.length === 0) return { methane: 0, dmi };
 
-  const serat = SERAT_OPTIONS.find(s => s.id === seratId);
-  const pati = PATI_OPTIONS.find(p => p.id === patiId);
-  const booster = boosterId ? ECO_BOOSTERS.find(b => b.id === boosterId) : null;
-  if (!serat || !pati) return { methane: 0, dmi };
+  const serats = SERAT_OPTIONS.filter(s => seratIds.includes(s.id));
+  const patis = PATI_OPTIONS.filter(p => patiIds.includes(p.id));
   
-  const ipmGabungan = serat.ipm * (ratio / 100) + pati.ipm * ((100 - ratio) / 100);
-  const faktorRuminasi = 500 / 500; // Asumsi default 500 menit/hari untuk estimasi awal
+  const avgSeratIpm = serats.reduce((sum, s) => sum + s.ipm, 0) / serats.length;
+  const avgPatiIpm = patis.reduce((sum, p) => sum + p.ipm, 0) / patis.length;
+  
+  const ipmGabungan = avgSeratIpm * (ratio / 100) + avgPatiIpm * ((100 - ratio) / 100);
+  
+  // Faktor_ruminasi berdasarkan GHSI (kesehatan sapi). Sapi sehat (GHSI tinggi) -> Faktor mendekati 1.0
+  const faktorRuminasi = Math.max(0.5, averageGHSI / 100); 
+  
+  const booster = boosterId ? ECO_BOOSTERS.find(b => b.id === boosterId) : null;
   
   let m = dmi * baseline * ipmGabungan * faktorRuminasi;
   if (booster) m *= (1 - booster.reduction);
@@ -89,13 +94,13 @@ interface AIRecommendation {
 
 function generateAIRecommendation(
   methane: number,
-  seratId: string,
-  patiId: string,
+  seratIds: string[],
+  patiIds: string[],
   ratio: number,
   boosterId: string | null,
   zone: ReturnType<typeof getMethaneZone>
 ): AIRecommendation {
-  if (methane === 0) {
+  if (methane === 0 || seratIds.length === 0 || patiIds.length === 0) {
     return {
       zone: 'empty', headline: 'Pilih bahan pakan untuk memulai analisis AI',
       detail: 'AI akan menganalisis komposisi pakan dan memberikan rekomendasi optimasi emisi metana secara real-time.',
@@ -103,12 +108,14 @@ function generateAIRecommendation(
     };
   }
 
-  const serat = SERAT_OPTIONS.find(s => s.id === seratId);
-  const pati = PATI_OPTIONS.find(p => p.id === patiId);
+  const serats = SERAT_OPTIONS.filter(s => seratIds.includes(s.id));
+  const avgSeratIpm = serats.reduce((sum, s) => sum + s.ipm, 0) / serats.length;
+  
   const hasBooster = boosterId !== null;
   const highFiberRatio = ratio > 65;
   const lowPatiRatio = 100 - ratio < 35;
-  const isHighIpm = (serat?.ipm ?? 1) > 1.10;
+  const isHighIpm = avgSeratIpm > 1.10;
+  const seratLabel = serats.length === 1 ? serats[0].label : 'Campuran Hijauan';
 
   let headline = '';
   let detail = '';
@@ -119,10 +126,10 @@ function generateAIRecommendation(
   if (zone.zone === 'red') {
     headline = `🔴 Zona Merah — Perlu Optimasi Segera`;
     if (highFiberRatio) {
-      detail = `Porsi ${serat?.label ?? 'Serat'} cukup tinggi (${ratio}%). Geser rasio pati ke ${Math.min(ratio - 10, 55)}% agar propionat meningkat.`;
+      detail = `Porsi ${seratLabel} cukup tinggi (${ratio}%). Geser rasio pati ke ${Math.min(ratio - 10, 55)}% agar propionat meningkat.`;
       potentialReduction = 15;
     } else if (isHighIpm) {
-      detail = `Bahan ${serat?.label} memiliki potensi metana tinggi (IPM ${serat?.ipm}). Pertimbangkan ganti ke sumber berserat dengan IPM lebih rendah seperti Lamtoro.`;
+      detail = `Bahan ${seratLabel} memiliki potensi metana tinggi (Rata-rata IPM ${avgSeratIpm.toFixed(2)}). Pertimbangkan ganti ke sumber berserat dengan IPM lebih rendah seperti Lamtoro.`;
       potentialReduction = 20;
     } else {
       detail = `Emisi ${methane}g/hari melebihi batas aman.`;
@@ -136,7 +143,7 @@ function generateAIRecommendation(
       detail = `Porsi ${serat?.label ?? 'Serat'} cukup tinggi (${ratio}%). Geser rasio pati ke 55% agar propionat meningkat.`;
       potentialReduction = 18;
     } else if (isHighIpm) {
-       detail = `Bahan ${serat?.label} (IPM ${serat?.ipm}) bisa diganti dengan alternatif IPM lebih rendah.`;
+       detail = `Bahan ${seratLabel} (Rata-rata IPM ${avgSeratIpm.toFixed(2)}) bisa diganti dengan alternatif IPM lebih rendah.`;
        potentialReduction = 15;
     } else {
       detail = `Komposisi seimbang tapi emisi masih di zona kuning (${methane}g/hari). Optimalkan dengan Eco-Booster.`;
@@ -185,20 +192,27 @@ export function EcoNutrition() {
   const [relIdx, setRelIdx] = useState(0);
 
   // Input state — start EMPTY (not pre-filled)
-  const [seratId, setSeratId] = useState('');
-  const [patiId, setPatiId] = useState('');
+  const [seratIds, setSeratIds] = useState<string[]>([]);
+  const [patiIds, setPatiIds] = useState<string[]>([]);
   const [ratio, setRatio] = useState(60);
   const [boosterId, setBoosterId] = useState<string | null>(null);
   const [bodyWeight, setBodyWeight] = useState(400);
+  const [selectedBreedId, setSelectedBreedId] = useState('pedaging'); // default
   const [isSaving, setIsSaving] = useState(false);
 
-  const hasInput = seratId !== '' && patiId !== '';
+  const hasInput = seratIds.length > 0 && patiIds.length > 0;
   const currentRel = batches[Math.min(relIdx, batches.length - 1)];
-  const breed = currentRel?.cattle[0]?.breed || 'Brahman Cross';
   
+  const averageGHSI = useMemo(() => {
+    if (!currentRel || currentRel.cattle.length === 0) return 100;
+    return currentRel.cattle.reduce((sum, c) => sum + (c.health_score ?? 100), 0) / currentRel.cattle.length;
+  }, [currentRel]);
+
+  const selectedBreed = BREED_OPTIONS.find(b => b.id === selectedBreedId) || BREED_OPTIONS[1];
+
   const { methane, dmi } = useMemo(() =>
-    hasInput ? calcMethaneDMI(seratId, patiId, ratio, boosterId, bodyWeight, breed) : { methane: 0, dmi: 0 },
-    [seratId, patiId, ratio, boosterId, bodyWeight, breed, hasInput]
+    hasInput ? calcMethaneDMI(seratIds, patiIds, ratio, boosterId, bodyWeight, selectedBreed.baseline, averageGHSI) : { methane: 0, dmi: 0 },
+    [seratIds, patiIds, ratio, boosterId, bodyWeight, selectedBreed, averageGHSI, hasInput]
   );
   const zone = getMethaneZone(methane);
   const rotation = needleRotation(methane);
@@ -214,8 +228,8 @@ export function EcoNutrition() {
     setIsSaving(true);
     const records = currentRel.cattle.map(c => ({
       cattle_id: c.id,
-      serat_id: seratId,
-      pati_id: patiId,
+      serat_id: seratIds.join(','),
+      pati_id: patiIds.join(','),
       ratio_serat: ratio,
       booster_id: boosterId,
       methane_estimate: methane,
@@ -233,7 +247,7 @@ export function EcoNutrition() {
   // Reset input saat ganti rel
   const handleRelChange = (newIdx: number) => {
     setRelIdx(newIdx);
-    setSeratId(''); setPatiId(''); setBoosterId(null);
+    setSeratIds([]); setPatiIds([]); setBoosterId(null);
   };
 
   return (
@@ -291,20 +305,37 @@ export function EcoNutrition() {
           </div>
           <div className="p-4 sm:p-5 space-y-4">
             <div>
-              <label className="flex items-center gap-1.5 text-xs font-bold text-rs-text mb-1">🌾 Sumber Serat Kasar</label>
-              <select value={seratId} onChange={e => setSeratId(e.target.value)}
+              <label className="flex items-center gap-1.5 text-xs font-bold text-rs-text mb-2">🐄 Ras Sapi</label>
+              <select value={selectedBreedId} onChange={e => setSelectedBreedId(e.target.value)}
                 className="w-full px-3 py-2.5 min-h-[44px] bg-rs-card-sub border-2 border-rs-border rounded-xl focus:outline-none focus:border-rs-primary transition-all text-rs-text text-sm appearance-none">
-                <option value="">— Pilih Serat —</option>
-                {SERAT_OPTIONS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+                {BREED_OPTIONS.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
               </select>
             </div>
             <div>
-              <label className="flex items-center gap-1.5 text-xs font-bold text-rs-text mb-1">🌽 Sumber Pati</label>
-              <select value={patiId} onChange={e => setPatiId(e.target.value)}
-                className="w-full px-3 py-2.5 min-h-[44px] bg-rs-card-sub border-2 border-rs-border rounded-xl focus:outline-none focus:border-rs-primary transition-all text-rs-text text-sm appearance-none">
-                <option value="">— Pilih Pati —</option>
-                {PATI_OPTIONS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
-              </select>
+              <label className="flex items-center gap-1.5 text-xs font-bold text-rs-text mb-2">🌾 Sumber Serat Kasar (Multi-pilih)</label>
+              <div className="flex flex-wrap gap-2">
+                {SERAT_OPTIONS.map(s => (
+                  <button key={s.id} onClick={() => setSeratIds(prev => prev.includes(s.id) ? prev.filter(id => id !== s.id) : [...prev, s.id])}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${
+                      seratIds.includes(s.id) ? 'bg-rs-primary text-white border-rs-primary' : 'bg-rs-card-sub text-rs-text border-rs-border hover:border-rs-primary/50'
+                    }`}>
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="flex items-center gap-1.5 text-xs font-bold text-rs-text mb-2">🌽 Sumber Pati (Multi-pilih)</label>
+              <div className="flex flex-wrap gap-2">
+                {PATI_OPTIONS.map(p => (
+                  <button key={p.id} onClick={() => setPatiIds(prev => prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id])}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${
+                      patiIds.includes(p.id) ? 'bg-rs-primary text-white border-rs-primary' : 'bg-rs-card-sub text-rs-text border-rs-border hover:border-rs-primary/50'
+                    }`}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div>
@@ -406,7 +437,7 @@ export function EcoNutrition() {
 
       {/* ─── AI Feed Optimizer Panel ─────────────────────────── */}
       {(() => {
-        const aiRec = generateAIRecommendation(methane, seratId, patiId, ratio, boosterId, zone);
+        const aiRec = generateAIRecommendation(methane, seratIds, patiIds, ratio, boosterId, zone);
         const suggestedBooster = aiRec.boosterSuggestion ? ECO_BOOSTERS.find(b => b.id === aiRec.boosterSuggestion) : null;
         const bgMap = { green: '#f0fdf4', yellow: '#fefce8', red: '#fff7f5', empty: '#f8fafc' };
         const borderMap = { green: '#bbf7d0', yellow: '#fde68a', red: '#fecaca', empty: '#e2e8f0' };
